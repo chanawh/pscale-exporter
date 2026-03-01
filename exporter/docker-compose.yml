@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  isilon-tunnel:
+    image: docker.io/alpine:3.20
+    container_name: isilon-tunnel
+    restart: unless-stopped
+    environment:
+      MGMT_IP: "192.168.1.9"     # OneFS ext-1 shown in your ifconfig
+      MGMT_PORT: "8080"          # OneFS Platform API is commonly on 8080; try 8443 if 8080 is closed
+      JUMPHOST: "10.241.80.184"
+      JUMPPORT: "50019"
+      SSH_KEY: "/root/.ssh/id_ed25519"
+    command:
+      - sh
+      - -ec
+      - |
+          apk add --no-cache openssh busybox-extras
+          ls -l /root/.ssh
+          exec ssh -N \
+            -L 0.0.0.0:8080:${MGMT_IP}:${MGMT_PORT} \
+            -p ${JUMPPORT} \
+            -i ${SSH_KEY} \
+            -o StrictHostKeyChecking=no \
+            -o BatchMode=yes \
+            -o ExitOnForwardFailure=yes \
+            -o ServerAliveInterval=60 \
+            -o ServerAliveCountMax=3 \
+            root@${JUMPHOST}
+    volumes:
+      - type: bind
+        source: 'C:\Users\chana13\.ssh'
+        target: /root/.ssh
+        read_only: true
+    healthcheck:
+      test: ["CMD-SHELL", "sh -c 'nc -z -w 1 127.0.0.1 8080'"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
+  isilon-exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: isilon-exporter
+    restart: unless-stopped
+    depends_on:
+      isilon-tunnel:
+        condition: service_healthy
+    environment:
+      - ISILON_HOST=isilon-tunnel
+      - ISILON_PORT=8080
+      - ISILON_USER=root
+      - ISILON_PASS=a
+      - SCRAPE_INTERVAL=30
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "19091:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "13001:3000"

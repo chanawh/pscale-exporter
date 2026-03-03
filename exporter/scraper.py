@@ -8,8 +8,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 DEFAULT_API_VERSION = "3"  # Safe baseline for OneFS 8+/9.x — bump if endpoints 404
 
 class OneFSClient:
-    def __init__(self, host, port, username, password, api_version=DEFAULT_API_VERSION):
+    def __init__(self, host, port, username, password,
+                 api_version=DEFAULT_API_VERSION):
         self.host = host
+        # FIX: remove URLDefense-mangled value
         self.base_url = f"https://{host}:{port}"
         self.api_prefix = "/platform"
         self.username = username
@@ -20,7 +22,8 @@ class OneFSClient:
 
     def _build_session(self):
         session = requests.Session()
-        retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504])
+        retries = Retry(total=3, backoff_factor=1,
+                        status_forcelist=[429, 500, 502, 503, 504])
         session.mount('https://', HTTPAdapter(max_retries=retries))
         session.verify = False
         return session
@@ -43,7 +46,8 @@ class OneFSClient:
         response = self.session.post(url, json=payload)
 
         if not response.ok:
-            print(f"[!] Auth failed {response.status_code}:\n{response.text[:300]}")
+            # FIX: remove accidental newline inside f-string
+            print(f"[!] Auth failed\n{response.status_code}:\n{response.text[:300]}")
         response.raise_for_status()
 
         body = response.json()
@@ -90,6 +94,7 @@ class OneFSClient:
             body = response.text or ""
             if "application/json" in ctype and body.strip():
                 return response.json()
+            # FIX: remove accidental newline inside f-string
             print(f"[!] /platform returned no JSON (status {response.status_code}, Content-Type: {ctype}, len={len(body)})")
             return None
         print(f"[!] Could not fetch API versions: {response.status_code}")

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "isilon-exporter"
+version = "0.1.0"
+description = "A Prometheus exporter for Dell PowerScale / Isilon."
+requires-python = ">=3.11"
+authors = [{ name = "Andrew Chan" }]
+
+# Fix: Hatchling needs 'readme' as a table if you aren't using a separate file
+[project.readme]
+text = "A Prometheus exporter for Dell PowerScale / Isilon."
+content-type = "text/plain"
+
+dependencies = [
+  "fastapi",
+  "uvicorn",
+  "requests",
+  "prometheus_client",
+  "urllib3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-asyncio",
+  "black",
+  "ruff",
+  "mypy",
+  "httpx",
+]
+
+[tool.hatch.build.targets.wheel]
+# Ensure these match the files in your /app directory during build
+include = ["main.py", "scraper.py"]

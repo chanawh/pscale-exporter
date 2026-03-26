@@ -1,0 +1,214 @@
+# Production-Ready Alert Rules
+# PowerScale Monitoring Stack - Portfolio Version
+
+groups:
+- name: powerscale-critical.rules
+  rules:
+  # Cluster Health Critical Alerts
+  - alert: PowerScaleClusterDown
+    expr: isilon_cluster_health == 0
+    for: 1m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "PowerScale cluster {{ $labels.cluster_name }} is DOWN"
+      description: "PowerScale cluster {{ $labels.cluster_name }} has been down for more than 1 minute"
+      runbook_url: "https://runbooks.company.com/powerscale-cluster-down"
+      dashboard_url: "http://grafana.company.com/d/powerscale-overview"
+
+  - alert: PowerScaleNodeDown
+    expr: isilon_node_status == 0
+    for: 2m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "PowerScale node {{ $labels.node_id }} is DOWN"
+      description: "Node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} has been down for more than 2 minutes"
+      runbook_url: "https://runbooks.company.com/powerscale-node-down"
+
+  - alert: PowerScaleDriveFailure
+    expr: isilon_drive_health == 0
+    for: 1m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Drive failure on PowerScale node {{ $labels.node_id }}"
+      description: "Drive {{ $labels.drive_id }} on node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} has failed"
+      runbook_url: "https://runbooks.company.com/powerscale-drive-failure"
+
+  - alert: PowerScaleCriticalCPU
+    expr: isilon_node_cpu_user_pct > 95
+    for: 5m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Critical CPU usage on PowerScale node {{ $labels.node_id }}"
+      description: "CPU usage is {{ $value }}% on node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} for more than 5 minutes"
+      runbook_url: "https://runbooks.company.com/powerscale-high-cpu"
+
+  - alert: PowerScaleCriticalMemory
+    expr: isilon_node_memory_used_gb > (isilon_node_memory_total_gb * 0.95)
+    for: 5m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Critical memory usage on PowerScale node {{ $labels.node_id }}"
+      description: "Memory usage is {{ $value }}GB ({{ $value | humanizePercentage }}) on node {{ $labels.node_id }}"
+      runbook_url: "https://runbooks.company.com/powerscale-high-memory"
+
+  - alert: PowerScaleCriticalCapacity
+    expr: (isilon_cluster_capacity_bytes_used / isilon_cluster_capacity_bytes_total) > 0.95
+    for: 15m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Critical storage capacity usage on {{ $labels.cluster_name }}"
+      description: "Storage usage is {{ $value | humanizePercentage }} on cluster {{ $labels.cluster_name }}"
+      runbook_url: "https://runbooks.company.com/powerscale-storage-capacity"
+
+  - alert: PowerScaleReplicationStalled
+    expr: isilon_replication_lag_seconds > 3600
+    for: 5m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Replication stalled on {{ $labels.cluster_name }}"
+      description: "Replication lag is {{ $value }} seconds ({{ $value | humanizeDuration }}) on cluster {{ $labels.cluster_name }}"
+      runbook_url: "https://runbooks.company.com/powerscale-replication-stalled"
+
+  - alert: PowerScaleExporterDown
+    expr: up{job="isilon-exporter"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      service: powerscale
+      team: monitoring
+    annotations:
+      summary: "PowerScale exporter is down"
+      description: "PowerScale exporter has been down for more than 2 minutes"
+      runbook_url: "https://runbooks.company.com/powerscale-exporter-down"
+
+- name: powerscale-warning.rules
+  rules:
+  # Warning Level Alerts
+  - alert: PowerScaleClusterDegraded
+    expr: isilon_cluster_health == 1 and (up{job="isilon-exporter"} == 0 or scrape_duration_seconds{job="isilon-exporter"} > 30)
+    for: 5m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "PowerScale cluster {{ $labels.cluster_name }} is degraded"
+      description: "PowerScale cluster {{ $labels.cluster_name }} is experiencing issues with metric collection"
+      runbook_url: "https://runbooks.company.com/powerscale-cluster-degraded"
+
+  - alert: PowerScaleHighCPU
+    expr: isilon_node_cpu_user_pct > 80
+    for: 10m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "High CPU usage on PowerScale node {{ $labels.node_id }}"
+      description: "CPU usage is {{ $value }}% on node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} for more than 10 minutes"
+      runbook_url: "https://runbooks.company.com/powerscale-high-cpu"
+
+  - alert: PowerScaleHighMemory
+    expr: isilon_node_memory_used_gb > (isilon_node_memory_total_gb * 0.85)
+    for: 15m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "High memory usage on PowerScale node {{ $labels.node_id }}"
+      description: "Memory usage is {{ $value }}GB ({{ $value | humanizePercentage }}) on node {{ $labels.node_id }}"
+      runbook_url: "https://runbooks.company.com/powerscale-high-memory"
+
+  - alert: PowerScaleHighCapacity
+    expr: (isilon_cluster_capacity_bytes_used / isilon_cluster_capacity_bytes_total) > 0.85
+    for: 30m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "High storage capacity usage on {{ $labels.cluster_name }}"
+      description: "Storage usage is {{ $value | humanizePercentage }} on cluster {{ $labels.cluster_name }}"
+      runbook_url: "https://runbooks.company.com/powerscale-storage-capacity"
+
+  - alert: PowerScaleHighDriveLatency
+    expr: isilon_drive_latency_ms > 50
+    for: 20m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "High drive latency on PowerScale node {{ $labels.node_id }}"
+      description: "Drive {{ $labels.drive_id }} latency is {{ $value }}ms on node {{ $labels.node_id }}"
+      runbook_url: "https://runbooks.company.com/powerscale-drive-latency"
+
+  - alert: PowerScaleHighNetworkErrors
+    expr: rate(isilon_node_net_errors_total[5m]) > 10
+    for: 10m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "High network errors on PowerScale node {{ $labels.node_id }}"
+      description: "Network error rate is {{ $value }}/sec on node {{ $labels.node_id }}"
+      runbook_url: "https://runbooks.company.com/powerscale-network-errors"
+
+  - alert: PowerScaleHighDiskBusy
+    expr: isilon_node_disk_busy_pct > 90
+    for: 15m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "High disk busy percentage on PowerScale node {{ $labels.node_id }}"
+      description: "Disk busy percentage is {{ $value }}% on node {{ $labels.node_id }}"
+      runbook_url: "https://runbooks.company.com/powerscale-disk-busy"
+
+  - alert: PowerScaleReplicationLag
+    expr: isilon_replication_lag_seconds > 300
+    for: 10m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "High replication lag on {{ $labels.cluster_name }}"
+      description: "Replication lag is {{ $value }} seconds on cluster {{ $labels.cluster_name }}"
+      runbook_url: "https://runbooks.company.com/powerscale-replication-lag"
+
+  - alert: PowerScaleExporterSlow
+    expr: scrape_duration_seconds{job="isilon-exporter"} > 30
+    for: 5m
+    labels:
+      severity: warning
+      service: powerscale
+      team: monitoring
+    annotations:
+      summary: "PowerScale exporter is slow"
+      description: "Scrape duration is {{ $value }}s for PowerScale exporter"
+      runbook_url: "https://runbooks.company.com/powerscale-exporter-slow"

@@ -1,0 +1,586 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "PowerScale Cluster - Complete Monitoring",
+    "tags": [
+      "powerscale",
+      "dell",
+      "storage",
+      "isilon"
+    ],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Cluster Health Status",
+        "type": "stat",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "isilon_cluster_health",
+            "legendFormat": "{{cluster_name}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "text": "DOWN",
+                    "color": "red"
+                  }
+                }
+              },
+              {
+                "options": {
+                  "1": {
+                    "text": "UP",
+                    "color": "green"
+                  }
+                }
+              }
+            ],
+            "thresholds": {
+              "steps": [
+                {
+                  "color": "red",
+                  "value": 0
+                },
+                {
+                  "color": "green",
+                  "value": 1
+                }
+              ]
+            },
+            "unit": "none"
+          }
+        },
+        "options": {
+          "colorMode": "background"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Storage Capacity",
+        "type": "piechart",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "isilon_cluster_capacity_bytes_used",
+            "legendFormat": "Used"
+          },
+          {
+            "expr": "isilon_cluster_capacity_bytes_total - isilon_cluster_capacity_bytes_used",
+            "legendFormat": "Free"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "bytes"
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Node Status Overview",
+        "type": "table",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 12,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "isilon_node_status",
+            "legendFormat": "{{cluster_name}}-{{node_id}}"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true
+              }
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "text": "DOWN",
+                    "color": "red"
+                  }
+                }
+              },
+              {
+                "options": {
+                  "1": {
+                    "text": "UP",
+                    "color": "green"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": 4,
+        "title": "Export Health",
+        "type": "stat",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 18,
+          "y": 0
+        },
+        "targets": [
+          {
+            "expr": "isilon_exporter_last_scrape_successful",
+            "legendFormat": "{{cluster_name}}"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "text": "FAIL",
+                    "color": "red"
+                  }
+                }
+              },
+              {
+                "options": {
+                  "1": {
+                    "text": "OK",
+                    "color": "green"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "CPU Usage by Node",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "isilon_node_cpu_user_pct",
+            "legendFormat": "User - {{node_id}}"
+          },
+          {
+            "expr": "isilon_node_cpu_sys_pct",
+            "legendFormat": "System - {{node_id}}"
+          },
+          {
+            "expr": "isilon_node_cpu_idle_pct",
+            "legendFormat": "Idle - {{node_id}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "percent"
+          },
+          {
+            "unit": "percent"
+          }
+        ],
+        "legend": {
+          "show": true,
+          "avg": true,
+          "max": true,
+          "min": true
+        }
+      },
+      {
+        "id": 6,
+        "title": "Memory Usage",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
+        "targets": [
+          {
+            "expr": "isilon_node_memory_used_gb",
+            "legendFormat": "Memory - {{node_id}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "bytes"
+          },
+          {
+            "unit": "bytes"
+          }
+        ],
+        "legend": {
+          "show": true,
+          "avg": true,
+          "max": true,
+          "min": true
+        }
+      },
+      {
+        "id": 7,
+        "title": "Network I/O",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 16
+        },
+        "targets": [
+          {
+            "expr": "rate(isilon_node_net_bytes_in[5m]) * 8",
+            "legendFormat": "In - {{node_id}}"
+          },
+          {
+            "expr": "rate(isilon_node_net_bytes_out[5m]) * 8",
+            "legendFormat": "Out - {{node_id}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "bps"
+          },
+          {
+            "unit": "bps"
+          }
+        ],
+        "legend": {
+          "show": true,
+          "avg": true,
+          "max": true,
+          "min": true
+        }
+      },
+      {
+        "id": 8,
+        "title": "Disk I/O",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 16
+        },
+        "targets": [
+          {
+            "expr": "isilon_node_disk_iops_in",
+            "legendFormat": "IOPS In - {{node_id}}"
+          },
+          {
+            "expr": "isilon_node_disk_iops_out",
+            "legendFormat": "IOPS Out - {{node_id}}"
+          },
+          {
+            "expr": "isilon_node_disk_busy_pct",
+            "legendFormat": "Busy % - {{node_id}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "iops"
+          },
+          {
+            "unit": "percent"
+          }
+        ],
+        "legend": {
+          "show": true,
+          "avg": true,
+          "max": true,
+          "min": true
+        }
+      },
+      {
+        "id": 9,
+        "title": "Drive Health Status",
+        "type": "table",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 24
+        },
+        "targets": [
+          {
+            "expr": "isilon_drive_health",
+            "legendFormat": "{{cluster_name}}-{{node_id}}-{{drive_id}}"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true
+              }
+            }
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {
+                "options": {
+                  "0": {
+                    "text": "FAIL",
+                    "color": "red"
+                  }
+                }
+              },
+              {
+                "options": {
+                  "1": {
+                    "text": "OK",
+                    "color": "green"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": 10,
+        "title": "Drive Performance",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 24
+        },
+        "targets": [
+          {
+            "expr": "isilon_drive_busy_pct",
+            "legendFormat": "Busy - {{node_id}}:{{drive_id}}"
+          },
+          {
+            "expr": "isilon_drive_latency_ms",
+            "legendFormat": "Latency - {{node_id}}:{{drive_id}}"
+          },
+          {
+            "expr": "isilon_drive_queue_depth",
+            "legendFormat": "Queue - {{node_id}}:{{drive_id}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "percent"
+          },
+          {
+            "unit": "ms"
+          }
+        ],
+        "legend": {
+          "show": true,
+          "avg": true,
+          "max": true,
+          "min": true
+        }
+      },
+      {
+        "id": 11,
+        "title": "Share Statistics",
+        "type": "stat",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 0,
+          "y": 32
+        },
+        "targets": [
+          {
+            "expr": "isilon_nfs_export_count",
+            "legendFormat": "NFS Exports"
+          },
+          {
+            "expr": "isilon_smb_share_count",
+            "legendFormat": "SMB Shares"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Quota Count",
+        "type": "stat",
+        "gridPos": {
+          "h": 8,
+          "w": 6,
+          "x": 6,
+          "y": 32
+        },
+        "targets": [
+          {
+            "expr": "isilon_quota_total",
+            "legendFormat": "Total Quotas"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short"
+          }
+        }
+      },
+      {
+        "id": 13,
+        "title": "Replication Lag",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 32
+        },
+        "targets": [
+          {
+            "expr": "isilon_replication_lag_seconds",
+            "legendFormat": "Lag - {{cluster_name}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "s"
+          },
+          {
+            "unit": "s"
+          }
+        ],
+        "legend": {
+          "show": true,
+          "avg": true,
+          "max": true,
+          "min": true
+        }
+      },
+      {
+        "id": 14,
+        "title": "Scrape Duration",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 40
+        },
+        "targets": [
+          {
+            "expr": "isilon_exporter_scrape_duration_seconds",
+            "legendFormat": "{{cluster_name}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "s"
+          },
+          {
+            "unit": "s"
+          }
+        ],
+        "legend": {
+          "show": true,
+          "avg": true,
+          "max": true,
+          "min": true
+        }
+      },
+      {
+        "id": 15,
+        "title": "API Error Rate",
+        "type": "graph",
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 40
+        },
+        "targets": [
+          {
+            "expr": "rate(isilon_exporter_api_errors_total[5m])",
+            "legendFormat": "{{endpoint}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "eps"
+          },
+          {
+            "unit": "eps"
+          }
+        ],
+        "legend": {
+          "show": true,
+          "avg": true,
+          "max": true,
+          "min": true
+        }
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s",
+    "schemaVersion": 27,
+    "version": 1,
+    "editable": true,
+    "gnetId": null,
+    "graphTooltip": 0,
+    "links": [],
+    "liveNow": false,
+    "templating": {
+      "list": [
+        {
+          "name": "cluster_name",
+          "type": "query",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "query": "label_values(isilon_cluster_health, cluster_name)",
+          "multi": true,
+          "includeAll": true,
+          "allValue": ".*",
+          "refresh": 1
+        }
+      ]
+    }
+  }
+}

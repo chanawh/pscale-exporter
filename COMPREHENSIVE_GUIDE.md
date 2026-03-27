@@ -92,10 +92,10 @@ LOG_LEVEL=INFO
 #### Namespace and Configuration
 ```bash
 # Create namespace
-kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/manifests/namespace.yaml
 
 # Apply configuration
-kubectl apply -f k8s/configmap.yaml
+kubectl apply -f k8s/manifests/configmap.yaml
 
 # Create secrets
 kubectl create secret generic powerscale-exporter-secrets \
@@ -107,14 +107,14 @@ kubectl create secret generic powerscale-exporter-secrets \
 #### Application Deployment
 ```bash
 # Deploy application
-kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/manifests/deployment.yaml
 
 # Deploy services
-kubectl apply -f k8s/service-clusterip.yaml
-kubectl apply -f k8s/service-nodeport.yaml
+kubectl apply -f k8s/manifests/service-clusterip.yaml
+kubectl apply -f k8s/manifests/service-nodeport.yaml
 
 # Apply security policy
-kubectl apply -f k8s/networkpolicy.yaml
+kubectl apply -f k8s/manifests/networkpolicy.yaml
 ```
 
 #### Verification
@@ -124,7 +124,7 @@ kubectl get pods -n powerscale-monitoring
 kubectl get services -n powerscale-monitoring
 
 # Run verification script
-./k8s/verify-deployment.sh
+./k8s/scripts/verify-deployment.sh
 
 # Test endpoints
 kubectl port-forward -n powerscale-monitoring svc/powerscale-exporter-clusterip 8000:8000 &
@@ -193,11 +193,12 @@ podman exec kind-cluster-control-plane bash -c "ctr -n k8s.io images import /tmp
 #### Manual Deployment Steps
 ```bash
 # Copy manifests to KIND container
-podman cp k8s kind-cluster-control-plane:/tmp/
+podman cp k8s/manifests kind-cluster-control-plane:/tmp/
+podman cp k8s/scripts kind-cluster-control-plane:/tmp/
 
 # Apply configurations (using bash wrapper for Windows compatibility)
-podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/k8s/namespace.yaml"
-podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/k8s/configmap.yaml"
+podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/manifests/namespace.yaml"
+podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/manifests/configmap.yaml"
 
 # Create secrets
 podman exec kind-cluster-control-plane bash -c "kubectl create secret generic powerscale-exporter-secrets \
@@ -206,9 +207,9 @@ podman exec kind-cluster-control-plane bash -c "kubectl create secret generic po
   --namespace=powerscale-monitoring"
 
 # Deploy application
-podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/k8s/deployment.yaml"
-podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/k8s/service-clusterip.yaml"
-podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/k8s/service-nodeport.yaml"
+podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/manifests/deployment.yaml"
+podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/manifests/service-clusterip.yaml"
+podman exec kind-cluster-control-plane bash -c "kubectl apply -f /tmp/manifests/service-nodeport.yaml"
 ```
 
 ### Network Configuration
@@ -315,10 +316,11 @@ scrape_configs:
 ```
 
 ### Grafana Dashboard
-- **Complete Dashboard**: Comprehensive PowerScale monitoring
-- **Pre-built Panels**: CPU, memory, storage, network metrics
-- **Alert Integration**: Threshold-based notifications
-- **Historical Analysis**: Trend visualization and capacity planning
+Import the provided dashboard:
+```bash
+# Dashboard location: monitoring/grafana/dashboards/powerscale-complete.json
+# Import via Grafana UI or API
+```
 
 ## 🧪 Troubleshooting Guide
 

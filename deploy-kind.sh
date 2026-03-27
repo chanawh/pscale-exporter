@@ -27,13 +27,19 @@ else
     echo "✅ Image already exists"
 fi
 
-# Copy k8s files to container
-echo "📁 Copying Kubernetes manifests to KIND container..."
-podman cp k8s/ $KIND_CONTAINER:/tmp/
+# Copy Kubernetes manifests to KIND container
+echo "� Copying Kubernetes manifests..."
+podman cp k8s/manifests $KIND_CONTAINER:/tmp/k8s/
+podman cp k8s/scripts $KIND_CONTAINER:/tmp/k8s/
 
 # Apply all manifests
 echo "🔧 Applying Kubernetes manifests..."
-podman exec $KIND_CONTAINER kubectl apply -f /tmp/k8s/
+podman exec $KIND_CONTAINER bash -c "kubectl apply -f /tmp/k8s/manifests/namespace.yaml"
+podman exec $KIND_CONTAINER bash -c "kubectl apply -f /tmp/k8s/manifests/configmap.yaml"
+podman exec $KIND_CONTAINER bash -c "kubectl apply -f /tmp/k8s/manifests/deployment.yaml"
+podman exec $KIND_CONTAINER bash -c "kubectl apply -f /tmp/k8s/manifests/service-clusterip.yaml"
+podman exec $KIND_CONTAINER bash -c "kubectl apply -f /tmp/k8s/manifests/service-nodeport.yaml"
+podman exec $KIND_CONTAINER bash -c "kubectl apply -f /tmp/k8s/manifests/networkpolicy.yaml"
 
 # Wait for namespace to be created
 echo "⏳ Waiting for namespace to be ready..."
@@ -59,9 +65,9 @@ echo "⏳ Waiting for pods to be ready..."
 podman exec $KIND_CONTAINER kubectl wait --for=condition=ready pod \
     -l app=powerscale-exporter -n $NAMESPACE --timeout=300s
 
-# Show deployment status
-echo "📊 Deployment status:"
-podman exec $KIND_CONTAINER kubectl get all -n $NAMESPACE
+# Run verification script
+echo "🔍 Running deployment verification..."
+podman exec $KIND_CONTAINER bash -c "chmod +x /tmp/k8s/scripts/verify-deployment.sh && /tmp/k8s/scripts/verify-deployment.sh"
 
 # Show pod logs
 echo "📋 Recent pod logs:"
@@ -72,29 +78,20 @@ echo "🧪 Testing service endpoints..."
 
 # Test NodePort access
 echo "Testing NodePort access (http://localhost:30080)..."
-if curl -s --max-time 10 http://localhost:30080/healthz > /dev/null 2>&1; then
-    echo "✅ NodePort health endpoint: http://localhost:30080/healthz"
-    echo "✅ NodePort metrics endpoint: http://localhost:30080/metrics/"
+if curl -f http://localhost:30080/healthz > /dev/null 2>&1; then
+    echo "✅ NodePort accessible"
+    curl http://localhost:30080/healthz
 else
     echo "⚠️  NodePort not responding, trying port-forward..."
-    
-    # Fallback to port-forward
     echo "🌐 Setting up port forwarding..."
-    podman exec $KIND_CONTAINER kubectl port-forward -n $NAMESPACE svc/powerscale-exporter-service 8000:8000 &
+    podman exec $KIND_CONTAINER kubectl port-forward -n $NAMESPACE svc/powerscale-exporter-clusterip 8000:8000 &
     PORT_FORWARD_PID=$!
-    
-    # Wait for port forward to start
-    sleep 5
-    
-    if curl -s --max-time 10 http://localhost:8000/healthz > /dev/null 2>&1; then
-        echo "✅ Port-forward health endpoint: http://localhost:8000/healthz"
-        echo "✅ Port-forward metrics endpoint: http://localhost:8000/metrics/"
-        echo "🛑 Stop port-forward with: kill $PORT_FORWARD_PID"
+    sleep 3
+    if curl -f http://localhost:8000/healthz > /dev/null 2>&1; then
+        echo "✅ Service accessible via port-forward"
+        curl http://localhost:8000/healthz
     else
         echo "❌ Service not responding"
-        echo "📋 Check logs with:"
-        echo "   podman exec $KIND_CONTAINER kubectl logs -f deployment/powerscale-exporter -n $NAMESPACE"
-        exit 1
     fi
 fi
 

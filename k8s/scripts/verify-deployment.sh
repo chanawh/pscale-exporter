@@ -17,6 +17,7 @@ if kubectl get namespace $NAMESPACE > /dev/null 2>&1; then
     echo "✅ Namespace '$NAMESPACE' exists"
 else
     echo "❌ Namespace '$NAMESPACE' not found"
+    echo "💡 Run: kubectl apply -f k8s/manifests/namespace.yaml"
     exit 1
 fi
 
@@ -28,6 +29,7 @@ if kubectl get deployment $SERVICE_NAME -n $NAMESPACE > /dev/null 2>&1; then
     echo "   Ready replicas: $REPLICAS"
 else
     echo "❌ Deployment '$SERVICE_NAME' not found"
+    echo "💡 Run: kubectl apply -f k8s/manifests/deployment.yaml"
     exit 1
 fi
 

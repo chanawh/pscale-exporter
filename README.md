@@ -51,7 +51,43 @@ This starts:
 - **Grafana** on port 13001
 - **SSH tunnel** for secure cluster access
 
-### Option 2: Manual Installation
+### Option 2: Kubernetes Deployment
+
+#### Standard Kubernetes
+```bash
+# For clusters with kubectl available locally
+kubectl apply -f k8s/
+
+# Configure credentials
+kubectl create secret generic powerscale-exporter-secrets \
+  --from-literal=ISILON_USER=root \
+  --from-literal=ISILON_PASS=your-password \
+  --namespace=powerscale-monitoring \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Verify deployment
+kubectl get pods -n powerscale-monitoring
+kubectl get services -n powerscale-monitoring
+```
+
+#### Podman KIND (Local Testing)
+```bash
+# Build local image
+podman build -t localhost/powerscale-exporter_isilon-exporter:latest .
+
+# Deploy to KIND cluster
+./deploy-kind.sh
+
+# Or manual deployment:
+podman cp k8s/ kind-cluster-control-plane:/tmp/
+podman exec kind-cluster-control-plane kubectl apply -f /tmp/k8s/
+
+# Access via NodePort
+curl http://localhost:30080/healthz
+curl http://localhost:30080/metrics/
+```
+
+### Option 3: Manual Installation
 
 ```bash
 # Install dependencies
@@ -214,7 +250,14 @@ Automated pipeline includes:
 - **Build**: Package creation and validation
 - **Multi-Python**: Testing on Python 3.11 and 3.12
 
-## 📚 API Documentation
+## 📚 Documentation
+
+### Essential Reading
+- **[COMPREHENSIVE_GUIDE.md](COMPREHENSIVE_GUIDE.md)** - Complete project documentation with detailed KIND/Podman deployment
+- **[CHANGELOG.md](CHANGELOG.md)** - Version history and changes
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
+
+## 📊 API Documentation
 
 ### Endpoints
 

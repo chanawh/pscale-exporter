@@ -139,3 +139,12 @@ Thumbs.db
 .env.production
 secrets/
 credentials/
+
+# Archive and temporary files
+*.tar
+*.tar.gz
+*.zip
+*.rar
+nul
+*.tmp
+*.temp

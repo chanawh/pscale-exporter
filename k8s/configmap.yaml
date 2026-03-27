@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: powerscale-exporter-config
+  namespace: powerscale-monitoring
+  labels:
+    app: powerscale-exporter
+    component: config
+data:
+  # PowerScale connection settings (using IP address reachable from KIND)
+  ISILON_HOST: "10.89.5.3"
+  ISILON_PORT: "8080"
+  SCRAPE_INTERVAL: "30"
+  TOMBSTONE_TTL: "86400"
+  
+  # Application settings
+  LOG_LEVEL: "INFO"
+  METRICS_PATH: "/metrics/"
+  HEALTH_PATH: "/healthz"
+  
+  # Performance settings
+  MAX_RETRIES: "3"
+  TIMEOUT: "30"
+  CIRCUIT_BREAKER_THRESHOLD: "5"

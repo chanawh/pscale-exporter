@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: powerscale-monitoring
+  labels:
+    name: powerscale-monitoring
+    app: powerscale-exporter
+    component: monitoring
+  annotations:
+    description: "Namespace for PowerScale exporter and monitoring components"

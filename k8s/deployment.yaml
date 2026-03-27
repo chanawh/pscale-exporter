@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: powerscale-exporter
+  namespace: powerscale-monitoring
+  labels:
+    app: powerscale-exporter
+    component: deployment
+    version: v0.1.0
+spec:
+  replicas: 1  # Reduced for KIND/Podman testing
+  selector:
+    matchLabels:
+      app: powerscale-exporter
+  template:
+    metadata:
+      labels:
+        app: powerscale-exporter
+        component: exporter
+        version: v0.1.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics/"
+    spec:
+      containers:
+      - name: powerscale-exporter
+        image: localhost/powerscale-exporter_isilon-exporter:latest
+        imagePullPolicy: IfNotPresent  # Try to find local image
+        ports:
+        - name: http
+          containerPort: 8000  # PowerScale exporter uses port 8000
+          protocol: TCP
+        env:
+        # Configuration from ConfigMap
+        - name: ISILON_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: powerscale-exporter-config
+              key: ISILON_HOST
+        - name: ISILON_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: powerscale-exporter-config
+              key: ISILON_PORT
+        - name: SCRAPE_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: powerscale-exporter-config
+              key: SCRAPE_INTERVAL
+        - name: TOMBSTONE_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: powerscale-exporter-config
+              key: TOMBSTONE_TTL
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: powerscale-exporter-config
+              key: LOG_LEVEL
+        - name: MAX_RETRIES
+          valueFrom:
+            configMapKeyRef:
+              name: powerscale-exporter-config
+              key: MAX_RETRIES
+        - name: TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: powerscale-exporter-config
+              key: TIMEOUT
+        - name: CIRCUIT_BREAKER_THRESHOLD
+          valueFrom:
+            configMapKeyRef:
+              name: powerscale-exporter-config
+              key: CIRCUIT_BREAKER_THRESHOLD
+        # Secrets from Secret
+        - name: ISILON_USER
+          valueFrom:
+            secretKeyRef:
+              name: powerscale-exporter-secrets
+              key: ISILON_USER
+        - name: ISILON_PASS
+          valueFrom:
+            secretKeyRef:
+              name: powerscale-exporter-secrets
+              key: ISILON_PASS
+        # Health checks
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        # Resource limits
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        # Security context for production deployment
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      # Restart policy
+      restartPolicy: Always
+      # Node selection (optional)
+      # nodeSelector:
+      #   kubernetes.io/os: linux

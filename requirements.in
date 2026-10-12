@@ -1,0 +1,7 @@
+# Runtime dependencies. Pin exact versions with:
+#   pip-compile --generate-hashes requirements.in --output-file=requirements.txt
+fastapi
+uvicorn
+requests
+prometheus_client
+urllib3

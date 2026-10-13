@@ -128,6 +128,15 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
+    - name: Build mock image (validation only)
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./mock_onefs/Dockerfile
+        push: false
+        tags: mock-onefs:ci
+        cache-from: type=gha
+
   # Deploy to AWS EKS (Manual Trigger)
   deploy-aws:
     name: Deploy to AWS EKS

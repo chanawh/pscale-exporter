@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Demo overlay: exporter scraping the mock OneFS cluster in-cluster.
+# Apply with: kubectl apply -k k8s/demo/
+
+resources:
+  - ../manifests/namespace.yaml
+  - ../manifests/deployment.yaml
+  - ../manifests/service-clusterip.yaml
+  - ../manifests/networkpolicy.yaml
+  - mock-onefs.yaml
+  - demo-secret.yaml
+
+patches:
+  # Point the exporter at the in-cluster mock instead of a real cluster.
+  - path: configmap-patch.yaml
+    target:
+      kind: ConfigMap
+      name: powerscale-exporter-config

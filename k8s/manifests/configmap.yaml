@@ -8,7 +8,8 @@ metadata:
     component: config
 data:
   # PowerScale connection settings (using IP address reachable from KIND)
-  ISILON_HOST: "10.89.5.3"
+  # Replace with your PowerScale cluster address (or use k8s/demo for the mock)
+  ISILON_HOST: "powerscale.example.com"
   ISILON_PORT: "8080"
   SCRAPE_INTERVAL: "30"
   TOMBSTONE_TTL: "86400"

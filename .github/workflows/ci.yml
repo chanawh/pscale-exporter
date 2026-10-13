@@ -48,7 +48,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
         pip install -e "exporter/[dev]"
-        pip install pytest-cov safety bandit
+        pip install pytest-cov pip-audit bandit
         
     - name: Code formatting check
       run: black --check .
@@ -61,7 +61,7 @@ jobs:
       
     - name: Security scanning
       run: |
-        safety check
+        pip-audit -r requirements.txt
         bandit -r exporter/ -f json -o bandit-report.json || true
         
     - name: Run tests with coverage
@@ -124,7 +124,10 @@ jobs:
     needs: [test, build]
     if: github.event.inputs.deploy_aws == 'true' || (github.ref == 'refs/heads/main' && github.event_name == 'push')
     environment: production
-    
+    # secrets context is not available in `if:` expressions -- map to env first
+    env:
+      AWS_LOAD_BALANCER: ${{ secrets.AWS_LOAD_BALANCER }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -189,7 +192,7 @@ jobs:
         kill $PORT_FORWARD_PID
         
     - name: Setup Ingress (Optional)
-      if: secrets.AWS_LOAD_BALANCER != ''
+      if: env.AWS_LOAD_BALANCER != ''
       run: |
         # Create Ingress for external access
         cat << EOF | kubectl apply -f -

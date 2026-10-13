@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Base manifests: the exporter pointed at a real PowerScale cluster.
+# Deploy with: kubectl apply -k k8s/manifests/
+# (k8s/demo/ uses this as its base for the mock-based kind demo.)
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service-clusterip.yaml
+  - service-nodeport.yaml
+  - networkpolicy.yaml

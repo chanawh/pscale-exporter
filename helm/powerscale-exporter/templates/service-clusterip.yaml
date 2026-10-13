@@ -1,0 +1,23 @@
+{{- if .Values.service.clusterIP.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "powerscale-exporter.fullname" . }}-clusterip
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "powerscale-exporter.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics/"
+    description: "ClusterIP service for internal Prometheus scraping"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    protocol: TCP
+  selector:
+    {{- include "powerscale-exporter.selectorLabels" . | nindent 4 }}
+{{- end }}

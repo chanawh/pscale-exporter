@@ -1,0 +1,54 @@
+{{- if .Values.mock.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "powerscale-exporter.mockHost" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "powerscale-exporter.mockLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "powerscale-exporter.name" . }}-mock
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "powerscale-exporter.name" . }}-mock
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+      - name: mock-onefs
+        image: "{{ .Values.mock.image.repository }}:{{ .Values.mock.image.tag }}"
+        imagePullPolicy: {{ .Values.mock.image.pullPolicy }}
+        ports:
+        - name: https
+          containerPort: 8080
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.mock.resources | nindent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 10001  # matches the appuser uid in the hardened image
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: certs
+          mountPath: /certs  # writable: the mock generates its TLS cert at startup
+      volumes:
+      - name: certs
+        emptyDir: {}
+{{- end }}

@@ -1,0 +1,19 @@
+{{- if .Values.mock.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "powerscale-exporter.mockHost" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "powerscale-exporter.mockLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+  - name: https
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ include "powerscale-exporter.name" . }}-mock
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

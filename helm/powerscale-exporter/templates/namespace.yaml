@@ -1,0 +1,10 @@
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.namespace.name }}
+  labels:
+    {{- include "powerscale-exporter.labels" . | nindent 4 }}
+  annotations:
+    description: "Namespace for PowerScale exporter and monitoring components"
+{{- end }}

@@ -1,0 +1,85 @@
+# Default values for powerscale-exporter.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+# Overrides for the generated resource names (truncated to 63 chars).
+nameOverride: ""
+fullnameOverride: ""
+
+namespace:
+  create: true
+  name: powerscale-monitoring
+
+image:
+  repository: awhchan/powerscale-exporter
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Non-secret exporter configuration (rendered into the ConfigMap).
+# host/port/interval are ignored when mock.enabled=true (the exporter
+# is pointed at the in-chart mock instead).
+isilon:
+  host: powerscale.example.com
+  port: "8080"
+
+scrapeInterval: "30"
+tombstoneTtl: "86400"
+logLevel: INFO
+maxRetries: "3"
+timeout: "30"
+circuitBreakerThreshold: "5"
+
+# Credentials (rendered into a Secret), unless existingSecret is set to
+# the name of a pre-created Secret holding ISILON_USER / ISILON_PASS keys.
+auth:
+  user: root
+  password: demo
+  existingSecret: ""
+
+# Demo mode: deploy the mock OneFS cluster inside the release and
+# point the exporter at it. No PowerScale hardware needed.
+mock:
+  enabled: false
+  image:
+    repository: awhchan/powerscale-mock-onefs
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+service:
+  clusterIP:
+    enabled: true
+  nodePort:
+    enabled: false
+    port: 30080
+
+networkPolicy:
+  enabled: true
+  # CIDRs the exporter is allowed to reach on the OneFS API port.
+  egressCidrs:
+    - 192.168.0.0/16
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 256Mi
+
+# Extra labels / annotations on the exporter pods.
+podLabels: {}
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics/"

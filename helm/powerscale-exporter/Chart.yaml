@@ -1,0 +1,16 @@
+apiVersion: v2
+name: powerscale-exporter
+description: Prometheus exporter for Dell PowerScale (OneFS), with an optional in-cluster mock for hardware-free demos
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - powerscale
+  - isilon
+  - onefs
+  - prometheus
+  - exporter
+  - monitoring
+home: https://github.com/chanawh/pscale-exporter
+maintainers:
+  - name: chanawh

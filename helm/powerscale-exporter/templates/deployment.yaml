@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "powerscale-exporter.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "powerscale-exporter.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "powerscale-exporter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "powerscale-exporter.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      containers:
+      - name: powerscale-exporter
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        env:
+        # Configuration from the ConfigMap
+        - name: ISILON_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "powerscale-exporter.configName" . }}
+              key: ISILON_HOST
+        - name: ISILON_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "powerscale-exporter.configName" . }}
+              key: ISILON_PORT
+        - name: SCRAPE_INTERVAL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "powerscale-exporter.configName" . }}
+              key: SCRAPE_INTERVAL
+        - name: TOMBSTONE_TTL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "powerscale-exporter.configName" . }}
+              key: TOMBSTONE_TTL
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "powerscale-exporter.configName" . }}
+              key: LOG_LEVEL
+        - name: MAX_RETRIES
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "powerscale-exporter.configName" . }}
+              key: MAX_RETRIES
+        - name: TIMEOUT
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "powerscale-exporter.configName" . }}
+              key: TIMEOUT
+        - name: CIRCUIT_BREAKER_THRESHOLD
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "powerscale-exporter.configName" . }}
+              key: CIRCUIT_BREAKER_THRESHOLD
+        # Credentials from the Secret
+        - name: ISILON_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "powerscale-exporter.secretName" . }}
+              key: ISILON_USER
+        - name: ISILON_PASS
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "powerscale-exporter.secretName" . }}
+              key: ISILON_PASS
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 10001  # matches the appuser uid in the hardened image
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir: {}

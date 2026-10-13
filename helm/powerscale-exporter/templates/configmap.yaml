@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "powerscale-exporter.configName" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "powerscale-exporter.labels" . | nindent 4 }}
+data:
+  {{- if .Values.mock.enabled }}
+  # Demo mode: scrape the in-chart mock instead of a real cluster.
+  ISILON_HOST: {{ include "powerscale-exporter.mockHost" . | quote }}
+  ISILON_PORT: "8080"
+  SCRAPE_INTERVAL: "15"
+  {{- else }}
+  ISILON_HOST: {{ .Values.isilon.host | quote }}
+  ISILON_PORT: {{ .Values.isilon.port | quote }}
+  SCRAPE_INTERVAL: {{ .Values.scrapeInterval | quote }}
+  {{- end }}
+  TOMBSTONE_TTL: {{ .Values.tombstoneTtl | quote }}
+  LOG_LEVEL: {{ .Values.logLevel | quote }}
+  MAX_RETRIES: {{ .Values.maxRetries | quote }}
+  TIMEOUT: {{ .Values.timeout | quote }}
+  CIRCUIT_BREAKER_THRESHOLD: {{ .Values.circuitBreakerThreshold | quote }}
+  METRICS_PATH: "/metrics/"
+  HEALTH_PATH: "/healthz"

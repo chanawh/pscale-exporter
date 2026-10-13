@@ -1,0 +1,24 @@
+{{- if .Values.service.nodePort.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "powerscale-exporter.fullname" . }}-nodeport
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "powerscale-exporter.labels" . | nindent 4 }}
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+    prometheus.io/path: "/metrics/"
+    description: "NodePort service for external access from host"
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+    nodePort: {{ .Values.service.nodePort.port }}
+    protocol: TCP
+  selector:
+    {{- include "powerscale-exporter.selectorLabels" . | nindent 4 }}
+{{- end }}

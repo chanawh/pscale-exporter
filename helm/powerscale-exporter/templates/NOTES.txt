@@ -1,0 +1,17 @@
+The PowerScale exporter has been installed into namespace {{ .Values.namespace.name }}.
+{{- if .Values.mock.enabled }}
+
+Demo mode: the exporter is scraping the in-chart mock OneFS cluster
+(service {{ include "powerscale-exporter.mockHost" . }}:8080). No PowerScale
+hardware needed.
+{{- else }}
+
+The exporter is scraping {{ .Values.isilon.host }}:{{ .Values.isilon.port }}.
+{{- end }}
+
+View live metrics:
+  kubectl -n {{ .Values.namespace.name }} port-forward svc/{{ include "powerscale-exporter.fullname" . }}-clusterip 8000:8000
+  # then open http://localhost:8000/metrics/ (and /healthz)
+
+Check rollout status:
+  kubectl -n {{ .Values.namespace.name }} rollout status deploy/{{ include "powerscale-exporter.fullname" . }}

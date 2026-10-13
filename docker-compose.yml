@@ -1,15 +1,13 @@
-version: "3.9"
-
 services:
   isilon-tunnel:
     image: docker.io/alpine:3.20
     container_name: isilon-tunnel
     restart: unless-stopped
     environment:
-      MGMT_IP: "192.168.1.9"     # OneFS ext-1 shown in your ifconfig
-      MGMT_PORT: "8080"          # OneFS Platform API is commonly on 8080; try 8443 if 8080 is closed
-      JUMPHOST: "10.241.80.184"
-      JUMPPORT: "50019"
+      MGMT_IP: ${MGMT_IP:?Set MGMT_IP to the OneFS management IP}
+      MGMT_PORT: ${MGMT_PORT:-8080}
+      JUMPHOST: ${JUMPHOST:?Set JUMPHOST to the SSH jump host}
+      JUMPPORT: ${JUMPPORT:-22}
       SSH_KEY: "/root/.ssh/id_ed25519"
     command:
       - sh
@@ -29,7 +27,7 @@ services:
             root@${JUMPHOST}
     volumes:
       - type: bind
-        source: 'C:\Users\chana13\.ssh'
+        source: ${SSH_KEY_DIR:?Set SSH_KEY_DIR, e.g. $HOME/.ssh}
         target: /root/.ssh
         read_only: true
     healthcheck:
@@ -51,9 +49,9 @@ services:
     environment:
       - ISILON_HOST=isilon-tunnel
       - ISILON_PORT=8080
-      - ISILON_USER=root
-      - ISILON_PASS=a
-      - SCRAPE_INTERVAL=30
+      - ISILON_USER=${ISILON_USER:-root}
+      - ISILON_PASS=${ISILON_PASS:?Set ISILON_PASS}
+      - SCRAPE_INTERVAL=${SCRAPE_INTERVAL:-30}
     ports:
       - "8000:8000"
     healthcheck:
@@ -70,8 +68,8 @@ services:
     ports:
       - "19091:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -88,7 +86,7 @@ services:
     ports:
       - "19093:9093"
     volumes:
-      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
@@ -100,6 +98,5 @@ services:
     ports:
       - "13001:3000"
     volumes:
-      - ./grafana/provisioning:/etc/grafana/provisioning
-      - ./grafana/dashboards:/var/lib/grafana/dashboards
-      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards

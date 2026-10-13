@@ -1,0 +1,30 @@
+# Demo stack: exporter scraping a mock OneFS cluster. No PowerScale hardware needed.
+#
+#   docker compose -f docker-compose.demo.yml up --build
+#
+# Then open http://localhost:8000/metrics/ to see live metrics and
+# http://localhost:8000/healthz for the health check.
+name: powerscale-exporter-demo
+
+services:
+  mock-onefs:
+    build:
+      context: .
+      dockerfile: ./mock_onefs/Dockerfile
+    ports:
+      - "8443:8080"
+
+  exporter:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      ISILON_HOST: mock-onefs
+      ISILON_PORT: 8080
+      ISILON_USER: root
+      ISILON_PASS: demo
+      SCRAPE_INTERVAL: 15
+    depends_on:
+      - mock-onefs

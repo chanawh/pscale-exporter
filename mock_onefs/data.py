@@ -82,7 +82,9 @@ def drives() -> list:
         for bay in range(1, DRIVES_PER_NODE + 1):
             out.append(
                 {
-                    "drive_id": f"bay-{node['id']}-{bay}",
+                    # Real OneFS uses "node:bay" drive ids; the exporter
+                    # parses this format for its metric labels.
+                    "drive_id": f"{node['id']}:{bay}",
                     "node": node["id"],
                     "bay": bay,
                     "type": "SSD" if bay % 2 else "HDD",

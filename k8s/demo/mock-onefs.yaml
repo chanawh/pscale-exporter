@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-onefs
+  namespace: powerscale-monitoring
+  labels:
+    app: mock-onefs
+    component: mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-onefs
+  template:
+    metadata:
+      labels:
+        app: mock-onefs
+        component: mock
+    spec:
+      containers:
+      - name: mock-onefs
+        image: awhchan/powerscale-mock-onefs:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: https
+          containerPort: 8080
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: https
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsNonRoot: true
+          runAsUser: 10001  # matches the appuser uid in the hardened image
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: certs
+          mountPath: /certs
+      volumes:
+      # Writable cert dir: the entrypoint generates the mock's self-signed
+      # TLS cert at startup, which needs a writable path on a read-only root fs.
+      - name: certs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-onefs
+  namespace: powerscale-monitoring
+  labels:
+    app: mock-onefs
+    component: service
+spec:
+  type: ClusterIP
+  ports:
+  - name: https
+    port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: mock-onefs

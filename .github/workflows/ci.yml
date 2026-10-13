@@ -128,14 +128,38 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Build mock image (validation only)
+    - name: Resolve mock image name
+      id: mock-image
+      run: |
+        if [ -n "${{ secrets.DOCKER_USERNAME }}" ]; then
+          echo "name=${{ secrets.DOCKER_USERNAME }}/powerscale-mock-onefs" >> "$GITHUB_OUTPUT"
+        else
+          # PR validation builds don't push; a local name is enough and
+          # keeps them working when the Docker Hub secrets aren't set
+          echo "name=pscale-mock-onefs" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Extract mock metadata
+      id: mock-meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ steps.mock-image.outputs.name }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push mock image
       uses: docker/build-push-action@v5
       with:
         context: .
         file: ./mock_onefs/Dockerfile
-        push: false
-        tags: mock-onefs:ci
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.mock-meta.outputs.tags }}
+        labels: ${{ steps.mock-meta.outputs.labels }}
         cache-from: type=gha
+        cache-to: type=gha,mode=max
 
   # Deploy to AWS EKS (Manual Trigger)
   deploy-aws:

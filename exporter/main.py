@@ -1,11 +1,12 @@
+import logging
+import os
 import threading
 import time
 from time import perf_counter
-import os
+
 from fastapi import FastAPI
-from prometheus_client import make_asgi_app, Gauge, Histogram, Counter
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from scraper import OneFSClient
-import logging
 
 logging.basicConfig(
     level=logging.INFO,
@@ -213,12 +214,12 @@ def _discover_node_endpoint() -> tuple[str, str] | None:
             raw = client._request("GET", ep, version=ver)
             if isinstance(raw, dict):
                 logger.info(f"[DISCOVER] v{ver}/{ep} -> keys: {list(raw.keys())}")
-                for key, val in raw.items():
+                for val in raw.values():
                     if isinstance(val, list) and val:
                         return ver, ep
             elif isinstance(raw, list) and raw:
                 return ver, ep
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
             logger.info(f"[DISCOVER] v{ver}/{ep} -> {e}")
     return None
 
@@ -229,7 +230,7 @@ def _fetch_all_registry_keys() -> list[str]:
     while True:
         try:
             data = client._request("GET", "statistics/keys", version="1", params=params)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
             logger.error(f"[DISCOVER] statistics/keys error: {e}")
             break
         keys_list = (
@@ -258,6 +259,7 @@ def _validate_key(key: str) -> bool:
         )
         return bool(isinstance(resp, dict) and resp.get("stats"))
     except Exception:
+        logger.debug("stat key validation failed", exc_info=True)
         return False
 
 
@@ -268,7 +270,7 @@ def _discover_cpu_key() -> str | None:
     while True:
         try:
             data = client._request("GET", "statistics/keys", version="1", params=params)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
             logger.error(f"[DISCOVER] statistics/keys failed: {e}")
             break
         keys_list = (
@@ -293,8 +295,8 @@ def _discover_cpu_key() -> str | None:
             if isinstance(resp, dict) and resp.get("stats"):
                 logger.info(f"[DISCOVER] Valid CPU key: '{key}'")
                 return key
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next key
+            logger.debug(f"[DISCOVER] CPU key '{key}' probe failed: {e}")
     return None
 
 
@@ -325,8 +327,8 @@ def _discover_cpu_core_count() -> int:
                         f"[DISCOVER] CPU core count: {count} (via statistics/current)"
                     )
                     return count
-        except Exception:
-            pass
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
+            logger.debug(f"[DISCOVER] CPU core count probe failed: {e}")
 
     try:
         all_keys = _fetch_all_registry_keys()
@@ -341,7 +343,7 @@ def _discover_cpu_core_count() -> int:
                 f"[DISCOVER] CPU core count: {count} (inferred from {count} per-core idle keys in registry)"
             )
             return max(count, 1)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
         logger.error(f"[DISCOVER] CPU core count stage-3 fallback failed: {e}")
 
     logger.error(
@@ -464,7 +466,7 @@ def _discover_drive_endpoint() -> tuple[str, str] | None:
                         for indicator in drive_indicators
                     ):
                         is_valid = True
-                        logger.info(f"[DEBUG] Found drive indicators in direct list")
+                        logger.info("[DEBUG] Found drive indicators in direct list")
 
             if is_valid:
                 logger.info(f"[DISCOVER] drive endpoint OK: v{ver}/{ep}")
@@ -472,7 +474,7 @@ def _discover_drive_endpoint() -> tuple[str, str] | None:
             else:
                 logger.info(f"[DEBUG] v{ver}/{ep} does not contain drive-like data")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
             logger.info(f"[DISCOVER] drive endpoint v{ver}/{ep} -> {e}")
             logger.debug(f"[DEBUG] Exception details: {type(e).__name__}: {e}")
 
@@ -529,10 +531,11 @@ def _node_id(n: dict) -> str:
 
 
 def _node_healthy(n: dict) -> bool:
-    sf = {}
+    sf: dict = {}
     try:
         sf = (n.get("state") or {}).get("smartfail") or {}
     except Exception:
+        logger.debug("node smartfail state unreadable; assuming healthy", exc_info=True)
         sf = {}
     if sf:
         return (
@@ -647,9 +650,12 @@ def collect_metrics():
                     # core count to get true 0-100%.  Values already under
                     # 100 (e.g. user/sys on a lightly loaded node) are left
                     # untouched because the API already averaged them.
-                    if "cpu" in key.lower() and "count" not in key.lower():
-                        if val >= 100.0:
-                            val = val / _cpu_core_count
+                    if (
+                        "cpu" in key.lower()
+                        and "count" not in key.lower()
+                        and val >= 100.0
+                    ):
+                        val = val / _cpu_core_count
 
                     if "cpu" in key.lower() and "count" not in key:
                         NODE_CPU.labels(cluster_name=cluster_name, node_id=devid).set(
@@ -696,8 +702,8 @@ def collect_metrics():
                         CLUSTER_CAP_TOTAL.labels(cluster_name=cluster_name).set(
                             float(s[0].get("value") or 0.0)
                         )
-                except Exception as e:
-                    logger.error(f"[!] Capacity total fetch failed: {e}")
+                except Exception:
+                    logger.exception("[!] Capacity total fetch failed")
 
             if _cap_used_key:
                 try:
@@ -712,8 +718,8 @@ def collect_metrics():
                         CLUSTER_CAP_USED.labels(cluster_name=cluster_name).set(
                             float(s[0].get("value") or 0.0)
                         )
-                except Exception as e:
-                    logger.error(f"[!] Capacity used fetch failed: {e}")
+                except Exception:
+                    logger.exception("[!] Capacity used fetch failed")
 
             # --- SyncIQ replication lag ---
             if _replication_lag_key:
@@ -729,8 +735,8 @@ def collect_metrics():
                         REPL_LAG.labels(cluster_name=cluster_name).set(
                             max(float(s[0].get("value") or 0.0), 0.0)
                         )
-                except Exception as e:
-                    logger.error(f"[!] Replication lag fetch failed: {e}")
+                except Exception:
+                    logger.exception("[!] Replication lag fetch failed")
 
             # --- Quota / NFS / SMB counts ---
             quotas = client.get_paginated("quota/quotas")
@@ -739,15 +745,15 @@ def collect_metrics():
             try:
                 exports = client.get_paginated("protocols/nfs/exports")
                 NFS_EXPORT_COUNT.labels(cluster_name=cluster_name).set(len(exports))
-            except Exception as e:
-                logger.error(f"[!] NFS export count failed: {e}")
+            except Exception:
+                logger.exception("[!] NFS export count failed")
                 NFS_EXPORT_COUNT.labels(cluster_name=cluster_name).set(0)
 
             try:
                 shares = client.get_paginated("protocols/smb/shares")
                 SMB_SHARE_COUNT.labels(cluster_name=cluster_name).set(len(shares))
-            except Exception as e:
-                logger.error(f"[!] SMB share count failed: {e}")
+            except Exception:
+                logger.exception("[!] SMB share count failed")
                 SMB_SHARE_COUNT.labels(cluster_name=cluster_name).set(0)
 
             # --- Drive health + performance (independent try blocks) ---
@@ -922,17 +928,17 @@ def collect_metrics():
                     )
 
                 except Exception as e:
-                    logger.error(f"[!] Drive health API failed: {e}", exc_info=True)
+                    logger.exception("[!] Drive health API failed")
                     logger.error(f"[DEBUG] Exception type: {type(e).__name__}")
                     logger.error(f"[DEBUG] Exception args: {e.args}")
 
                 # Skip the separate performance API call since we get all data from health endpoint
                 logger.debug(
-                    f"[DEBUG] Skipping separate drive performance API - using health endpoint data"
+                    "[DEBUG] Skipping separate drive performance API - using health endpoint data"
                 )
 
-        except Exception as e:
-            logger.error(f"SCRAPE_FAIL | cluster={cluster_name} | error={e}")
+        except Exception:
+            logger.exception(f"SCRAPE_FAIL | cluster={cluster_name}")
             CLUSTER_HEALTH.labels(cluster_name=cluster_name).set(0)
             SCRAPE_SUCCESS.labels(cluster_name=cluster_name).set(0)
             SCRAPE_DURATION.observe(max(perf_counter() - loop_start, 0.0))

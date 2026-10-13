@@ -1,11 +1,11 @@
-import requests
-import urllib3
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
+import logging
 import os
 import time
-import logging
-from typing import Optional, Dict, Any, List
+
+import requests
+import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -14,6 +14,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DEFAULT_API_VERSION = "3"  # Safe baseline for OneFS 8+/9.x — bump if endpoints 404
+
+
+class OneFSError(Exception):
+    """Base error for OneFS API client failures."""
+
+
+class CircuitOpenError(OneFSError):
+    """Raised when the circuit breaker is open and a call is short-circuited."""
+
+
+class AuthenticationError(OneFSError):
+    """Raised when OneFS session authentication fails."""
 
 
 class CircuitBreaker:
@@ -31,7 +43,7 @@ class CircuitBreaker:
             if time.time() - self.last_failure_time > self.timeout:
                 self.state = "HALF_OPEN"
             else:
-                raise Exception("Circuit breaker is OPEN")
+                raise CircuitOpenError("Circuit breaker is OPEN")
 
         try:
             result = func(*args, **kwargs)
@@ -39,12 +51,12 @@ class CircuitBreaker:
                 self.state = "CLOSED"
                 self.failure_count = 0
             return result
-        except Exception as e:
+        except Exception:
             self.failure_count += 1
             self.last_failure_time = time.time()
             if self.failure_count >= self.failure_threshold:
                 self.state = "OPEN"
-            raise e
+            raise
 
 
 class OneFSClient:
@@ -52,8 +64,8 @@ class OneFSClient:
         self,
         host,
         port,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        username: str | None = None,
+        password: str | None = None,
         api_version=DEFAULT_API_VERSION,
     ):
         self.host = host
@@ -107,7 +119,9 @@ class OneFSClient:
                 logger.error(
                     f"Auth failed: {response.status_code} - {response.text[:300]}"
                 )
-                raise Exception(f"Authentication failed: {response.status_code}")
+                raise AuthenticationError(
+                    f"Authentication failed: {response.status_code}"
+                )
 
             body = response.json()
             csrf_token = (

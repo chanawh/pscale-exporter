@@ -133,6 +133,26 @@ All series carry `cluster_name`. Node series add `node_id`; drive series add `no
 
 Plus the standard `python_*` / `process_*` series from `prometheus_client`.
 
+## Monitoring & alerting
+
+The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup, all pre-wired:
+
+- **Prometheus** — http://localhost:19091, scrapes the exporter every 15s (`monitoring/prometheus/prometheus.yml`)
+- **Grafana** — http://localhost:13001, with the provisioned dashboard **"PowerScale Cluster - Complete Monitoring"**: 15 panels covering cluster health, capacity, node status, CPU, memory, network, disk I/O, drive health/performance, NFS/SMB shares, quotas, replication lag, and scrape duration
+- **Alertmanager** — http://localhost:19093 (`monitoring/alertmanager/alertmanager.yml`)
+
+14 alert rules (`monitoring/prometheus/alert-rules.yml`), all firing on metrics the exporter actually emits:
+
+| Alert | Condition |
+|-------|-----------|
+| `PowerScaleClusterDown` / `PowerScaleNodeDown` / `PowerScaleDriveFailure` | health == 0 |
+| `PowerScaleCriticalCPU` / `PowerScaleHighCPU` | CPU user % > 95 / 80 |
+| `PowerScaleCriticalCapacity` / `PowerScaleHighCapacity` | used / total > 0.95 / 0.85 |
+| `PowerScaleHighDiskBusy` | disk busy % > 90 |
+| `PowerScaleHighDriveLatency` | drive latency > 50ms |
+| `PowerScaleReplicationStalled` / `PowerScaleReplicationLag` | lag > 3600s / 300s |
+| `PowerScaleExporterDown` / `PowerScaleExporterSlow` / `PowerScaleClusterDegraded` | exporter health / scrape duration |
+
 ## Configuration
 
 | Variable | Default | Description |

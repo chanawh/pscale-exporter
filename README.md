@@ -1,340 +1,202 @@
 # PowerScale Prometheus Exporter
 
-A comprehensive Prometheus exporter for Dell PowerScale / Isilon storage clusters, providing detailed metrics for monitoring storage infrastructure health and performance.
+[![CI](https://github.com/chanawh/pscale-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/chanawh/pscale-exporter/actions/workflows/ci.yml)
 
-## 🚀 Features
+A Prometheus exporter for Dell PowerScale / Isilon storage clusters. It scrapes the OneFS API, auto-discovers the stat keys and endpoints the cluster actually supports, and exposes the results as Prometheus metrics — cluster health, per-node CPU/disk/network, drive health, capacity, quotas, NFS/SMB, and SyncIQ replication lag.
 
-- **Cluster Health Monitoring**: Overall cluster status and node availability
-- **Performance Metrics**: CPU, memory, disk, and network statistics per node
-- **Storage Metrics**: Capacity usage, quota counts, NFS/SMB shares
-- **Drive Health**: Individual drive status and performance monitoring
-- **Replication Monitoring**: SyncIQ replication lag tracking
-- **Auto-Discovery**: Automatic API endpoint and metric discovery
-- **Production Ready**: Health checks, error handling, retry logic
-- **Containerized**: Docker and docker-compose deployment ready
-- **CI/CD Ready**: Comprehensive testing, linting, and security scanning
+No PowerScale hardware? Every deployment path below has a **demo mode** that runs the exporter against an in-repo mock OneFS cluster instead.
 
-## 🏗️ Architecture
+## Features
 
-- **FastAPI**: Modern async web framework for HTTP endpoints
-- **Prometheus Client**: Standard metrics exposition format
-- **Robust Scraper**: Resilient OneFS API client with auto-retry
-- **Circuit Breaker**: Fault tolerance with automatic recovery
-- **Containerized**: Docker and docker-compose deployment ready
+- **Auto-discovery** — probes the OneFS API at startup and builds the stat map from what the cluster actually serves (no hardcoded key lists to rot)
+- **Cluster + node + drive metrics** — health, CPU, memory, disk I/O, network, per-drive busy/latency/queue depth
+- **Capacity, quotas, NFS/SMB, SyncIQ** — the storage-level picture, not just host stats
+- **Resilient scraper** — retries, timeouts, circuit breaker, tombstoned-node expiry
+- **Mock OneFS** — a faithful fake OneFS API (`mock_onefs/`) so the whole stack runs with zero hardware
+- **Hardened images** — multi-stage builds, non-root uid `10001`, read-only root filesystem
+- **Three deployment paths** — Compose, Kustomize, Helm — all verified end-to-end
 
-## 📋 Prerequisites
+## Architecture
 
-- Docker & Docker Compose (recommended)
-- Python 3.11+ (for manual installation)
-- Access to Dell PowerScale/Isilon OneFS API
-- SSH tunnel configuration (for secure cluster access)
-
-## 🚀 Quick Start
-
-### Option 1: Docker Compose (Recommended)
-
-```bash
-# Clone and start all services
-git clone <repository-url>
-cd powerscale-exporter
-docker-compose up -d
-
-# Verify services are running
-curl http://localhost:8000/healthz
-curl http://localhost:19091/api/v1/targets
-curl http://localhost:13001
+```mermaid
+flowchart LR
+    subgraph Target["OneFS target"]
+        A["Real PowerScale<br/>OneFS API :8080"]
+        M["mock-onefs<br/>(demo only)"]
+    end
+    A -->|"HTTPS, every 15–30s"| E["powerscale-exporter<br/>:8000 /metrics/ /healthz"]
+    M -->|"HTTPS"| E
+    E -->|"Prometheus scrape"| P["Prometheus"]
+    P --> G["Grafana"]
+    P --> AM["Alertmanager"]
 ```
 
-This starts:
-- **PowerScale exporter** on port 8000
-- **Prometheus** on port 19091
-- **Grafana** on port 13001
-- **SSH tunnel** for secure cluster access
+The exporter is a FastAPI app (`exporter/`). A background thread polls OneFS on `SCRAPE_INTERVAL`, caches the latest values, and serves them from `/metrics/` in Prometheus format. `/healthz` reports `{"status": "online", ...}` with discovery state (or `503` if the scraper thread has died).
 
-### Option 2: Kubernetes Deployment
+## Quickstart
 
-#### Standard Kubernetes
-```bash
-# For clusters with kubectl available locally
-kubectl apply -f k8s/
+All three demo paths need no PowerScale hardware — they run against the mock.
 
-# Configure credentials
-kubectl create secret generic powerscale-exporter-secrets \
-  --from-literal=ISILON_USER=root \
-  --from-literal=ISILON_PASS=your-password \
-  --namespace=powerscale-monitoring \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-# Verify deployment
-kubectl get pods -n powerscale-monitoring
-kubectl get services -n powerscale-monitoring
-```
-
-#### Podman KIND (Local Testing)
-```bash
-# Build local image
-podman build -t localhost/powerscale-exporter_isilon-exporter:latest .
-
-# Deploy to KIND cluster
-./deploy-kind.sh
-
-# Or manual deployment:
-podman cp k8s/ kind-cluster-control-plane:/tmp/
-podman exec kind-cluster-control-plane kubectl apply -f /tmp/k8s/
-
-# Access via NodePort
-curl http://localhost:30080/healthz
-curl http://localhost:30080/metrics/
-```
-
-### Option 3: Manual Installation
+### Option A — Docker Compose demo (fastest)
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Set environment variables
-export ISILON_HOST=your-cluster-host
-export ISILON_PORT=8080
-export ISILON_USER=root
-export ISILON_PASS=your-password
-export SCRAPE_INTERVAL=30
-
-# Run the exporter
-cd exporter
-python main.py
+docker compose -f docker-compose.demo.yml up --build
 ```
 
-## 📊 Available Metrics
+Then open http://localhost:8000/metrics/ (note the trailing slash) and http://localhost:8000/healthz.
 
-### Cluster Metrics
-- `isilon_cluster_health` - Overall cluster status (1=healthy, 0=unhealthy)
-- `isilon_cluster_capacity_bytes` - Total cluster capacity in bytes
-- `isilon_cluster_used_bytes` - Used storage in bytes
-- `isilon_cluster_available_bytes` - Available storage in bytes
+### Option B — kind + Kustomize demo
 
-### Node Metrics
-- `isilon_node_status` - Node health status (1=online, 0=offline)
-- `isilon_node_cpu_percent` - CPU utilization percentage
-- `isilon_node_memory_bytes` - Memory usage statistics
-- `isilon_node_disk_bytes` - Disk usage and performance
+```bash
+kind create cluster --name pscale-demo --image kindest/node:v1.32.0
+kubectl apply -k k8s/demo/
+kubectl -n powerscale-monitoring rollout status deploy/powerscale-exporter
+kubectl -n powerscale-monitoring port-forward svc/powerscale-exporter-clusterip 8000:8000
+```
 
-### Drive Metrics
-- `isilon_drive_status` - Individual drive health
-- `isilon_drive_temperature_celsius` - Drive temperature
-- `isilon_drive_bytes` - Drive capacity and usage
+> On Docker Desktop for Windows, pin `kindest/node:v1.32.0`: kind's default v1.37.0 node image fails to initialize there (`kubeadm init` never reaches a ready API server).
 
-### Performance Metrics
-- `isilon_network_bytes_total` - Network throughput
-- `isilon_ops_total` - Operation counts by type
-- `isilon_latency_seconds` - Response time metrics
+### Option C — Helm demo
 
-## 🔧 Configuration
+```bash
+helm install pscale ./helm/powerscale-exporter --set mock.enabled=true
+kubectl -n powerscale-monitoring rollout status deploy/pscale-powerscale-exporter
+kubectl -n powerscale-monitoring port-forward svc/pscale-powerscale-exporter-clusterip 8000:8000
+```
 
-### Environment Variables
+## Against a real cluster
+
+### Helm (recommended)
+
+```bash
+helm install pscale ./helm/powerscale-exporter \
+  --set isilon.host=10.0.0.5 \
+  --set isilon.port=8080 \
+  --set auth.user=monitor \
+  --set auth.password='...'
+```
+
+Prefer a pre-created Secret over a command-line password:
+
+```bash
+kubectl -n powerscale-monitoring create secret generic onefs-creds \
+  --from-literal=ISILON_USER=monitor --from-literal=ISILON_PASS='...'
+
+helm install pscale ./helm/powerscale-exporter \
+  --set isilon.host=10.0.0.5 \
+  --set auth.existingSecret=onefs-creds
+```
+
+See `helm/powerscale-exporter/README.md` for the full values table.
+
+### Kustomize
+
+```bash
+kubectl apply -k k8s/manifests/
+kubectl -n powerscale-monitoring create secret generic powerscale-exporter-secrets \
+  --from-literal=ISILON_USER=monitor --from-literal=ISILON_PASS='...'
+```
+
+Edit `ISILON_HOST` in `k8s/manifests/configmap.yaml` first.
+
+### Docker Compose (full stack)
+
+`docker-compose.yml` runs the exporter plus Prometheus, Grafana, and Alertmanager. For clusters reachable only via an SSH jump host, it also includes an optional `isilon-tunnel` service (set `MGMT_IP`, `JUMPHOST`, `SSH_KEY_DIR`):
+
+```bash
+ISILON_PASS='...' docker compose up -d
+```
+
+## Metrics
+
+All series carry `cluster_name`. Node series add `node_id`; drive series add `node_id` + `drive_id`.
+
+| Metric | Description |
+|--------|-------------|
+| `isilon_cluster_health` | Cluster health (1 = OK) |
+| `isilon_cluster_capacity_bytes_total` / `isilon_cluster_capacity_bytes_used` | Capacity |
+| `isilon_node_status` | Node status (1 = OK) |
+| `isilon_node_cpu_value`, `isilon_node_cpu_user_pct`, `isilon_node_cpu_sys_pct`, `isilon_node_cpu_idle_pct` | Node CPU |
+| `isilon_node_disk_busy_pct`, `isilon_node_disk_iops_in`, `isilon_node_disk_iops_out` | Node disk I/O |
+| `isilon_node_disk_bw_in_bytes`, `isilon_node_disk_bw_out_bytes` | Node disk throughput |
+| `isilon_node_net_bytes_in`, `isilon_node_net_bytes_out` | Node network |
+| `isilon_node_memory_used_bytes`, `isilon_node_memory_used_gb` | Node memory |
+| `isilon_node_last_seen_seconds` | Last successful node scrape (unix ts) |
+| `isilon_drive_health` | Drive health (1 = ok) |
+| `isilon_drive_busy_pct`, `isilon_drive_latency_ms`, `isilon_drive_queue_depth` | Per-drive performance |
+| `isilon_quota_total` | Number of quotas |
+| `isilon_nfs_export_count`, `isilon_smb_share_count` | NFS exports / SMB shares |
+| `isilon_replication_lag_seconds` | SyncIQ replication lag |
+| `isilon_exporter_last_scrape_successful` | 1 if the last scrape succeeded |
+| `isilon_exporter_api_errors_total` | Failed OneFS API calls |
+| `isilon_exporter_scrape_duration_seconds` | Scrape duration (histogram) |
+
+Plus the standard `python_*` / `process_*` series from `prometheus_client`.
+
+## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ISILON_HOST` | 127.0.0.1 | PowerScale cluster hostname |
-| `ISILON_PORT` | 8080 | API port |
-| `ISILON_USER` | root | Username |
-| `ISILON_PASS` | a | Password |
-| `SCRAPE_INTERVAL` | 30 | Metrics collection interval (seconds) |
-| `TOMBSTONE_TTL` | 86400 | Node tombstone TTL (seconds) |
+| `ISILON_HOST` | _(none — required)_ | PowerScale cluster hostname/IP |
+| `ISILON_PORT` | `8080` | OneFS API port |
+| `ISILON_USER` | `root` | OneFS API user |
+| `ISILON_PASS` | _(none — required, fail-fast)_ | OneFS API password |
+| `SCRAPE_INTERVAL` | `30` | Scrape interval (seconds) |
+| `TOMBSTONE_TTL` | `86400` | Seconds before a silent node is dropped |
+| `LOG_LEVEL` | `INFO` | Log level |
+| `MAX_RETRIES` / `TIMEOUT` / `CIRCUIT_BREAKER_THRESHOLD` | `3` / `30` / `5` | Scraper resilience tuning |
 
-## 🛠️ Development
+## Security / hardening
 
-### Setup Development Environment
+- Exporter and mock images are multi-stage builds running as non-root `appuser` (uid `10001`) with a read-only root filesystem (the mock keeps a writable `emptyDir` at `/certs` for its startup-generated TLS cert).
+- The Kubernetes manifests include a NetworkPolicy: ingress only on `:8000`, egress only to DNS and the OneFS API port (plus 80/443).
+- Credentials are never defaulted: `ISILON_PASS` is fail-fast when unset. Prefer `auth.existingSecret` / a pre-created Secret over passing passwords on a command line.
+- Dependencies are hash-pinned (`requirements.txt` generated from `requirements.in`); CI runs `pip-audit`.
 
-```bash
-# Install development dependencies
-pip install -r requirements.txt
-pip install -e exporter/
-
-# Run tests with coverage
-pytest test/ -v --cov=exporter --cov-report=html
-
-# Code formatting and linting
-black .
-ruff check .
-mypy exporter/ --ignore-missing-imports
-
-# Security scanning
-safety check
-bandit -r exporter/
-```
-
-### Project Structure
-
-```
-powerscale-exporter/
-├── exporter/                 # Core application
-│   ├── main.py              # FastAPI application entry point
-│   ├── scraper.py           # OneFS API client
-│   └── pyproject.toml       # Package configuration
-├── grafana/                 # Grafana dashboards & provisioning
-├── Dockerfile               # Container build configuration
-├── docker-compose.yml       # Service orchestration
-├── requirements.txt        # Python dependencies
-├── prometheus.yml           # Prometheus configuration
-├── alert-rules.yml          # Alert rules
-├── alertmanager.yml         # Alertmanager configuration
-├── README.md                # This file
-├── CHANGELOG.md             # Version history
-├── CONTRIBUTING.md          # Development guidelines
-├── LICENSE                  # MIT License
-└── .gitignore               # Git exclusions
-```
-
-## 📈 Monitoring & Alerting
-
-### Grafana Dashboards
-
-Pre-configured dashboards include:
-- **Cluster Overview**: Overall health and capacity
-- **Node Performance**: Per-node resource utilization
-- **Storage Analytics**: Capacity trends and usage patterns
-- **Drive Health**: Hardware monitoring and alerts
-
-### Alert Rules
-
-Critical alerts configured:
-- Cluster health degradation
-- Node offline detection
-- Capacity threshold warnings
-- Drive failure notifications
-- High latency alerts
-
-## 🔒 Security
-
-- **SSH Tunneling**: Secure cluster communication
-- **API Authentication**: OneFS API token management
-- **Container Security**: Minimal base images
-- **Secrets Management**: Environment-based configuration
-- **Security Scanning**: Automated vulnerability checks
-
-## 🧪 Testing
-
-### Test Suite
+## Development
 
 ```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=exporter --cov-report=html
-
-# Run specific test categories
-pytest -m unit
-pytest -m integration
+pytest test/                    # unit tests
+black --check .                 # formatting
+ruff check .                    # lint
+mypy exporter/                  # types
+pip-audit                       # dependency vulnerabilities
 ```
 
-## 🚀 Deployment
+CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.11 and 3.12, builds both images, and publishes `awhchan/powerscale-exporter` and `awhchan/powerscale-mock-onefs` to Docker Hub from `main`. The EKS deploy job is manual-only (`workflow_dispatch`).
 
-### Production Deployment
+## Project structure
 
-1. **Environment Setup**: Configure environment variables
-2. **SSL/TLS**: Configure HTTPS endpoints
-3. **Authentication**: Set up proper API credentials
-4. **Monitoring**: Configure alert thresholds
-5. **Backup**: Regular configuration backups
-
-## 🔄 CI/CD Pipeline
-
-### GitHub Actions
-
-Automated pipeline includes:
-- **Code Quality**: Black formatting, Ruff linting, MyPy type checking
-- **Testing**: Unit and integration tests with coverage
-- **Security**: Safety dependency scanning, Bandit security analysis
-- **Build**: Package creation and validation
-- **Multi-Python**: Testing on Python 3.11 and 3.12
-
-## 📚 Documentation
-
-### Essential Reading
-- **[COMPREHENSIVE_GUIDE.md](COMPREHENSIVE_GUIDE.md)** - Complete project documentation with detailed KIND/Podman deployment
-- **[CHANGELOG.md](CHANGELOG.md)** - Version history and changes
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Contribution guidelines
-
-## 📊 API Documentation
-
-### Endpoints
-
-- `GET /` - Application information
-- `GET /healthz` - Health check endpoint
-- `GET /metrics` - Prometheus metrics endpoint
-
-### Health Check Response
-
-```json
-{
-  "status": "healthy",
-  "timestamp": "2024-03-26T16:30:00Z",
-  "version": "0.1.0"
-}
+```
+.
+├── exporter/                  # exporter app (main.py, scraper.py)
+├── mock_onefs/                # mock OneFS API for hardware-free demos
+├── test/                      # unit tests
+├── k8s/
+│   ├── manifests/             # base kustomization (real cluster)
+│   └── demo/                  # demo overlay (mock in-cluster)
+├── helm/
+│   └── powerscale-exporter/   # Helm chart (demo + real-cluster modes)
+├── monitoring/                # Prometheus / Grafana / Alertmanager configs
+├── docker-compose.yml         # full stack (+ optional SSH tunnel)
+├── docker-compose.demo.yml    # demo stack (mock + exporter)
+└── Dockerfile
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-### Common Issues
+- **kind cluster never becomes ready on Docker Desktop** — pin the node image: `kind create cluster --image kindest/node:v1.32.0` (v1.37.0 fails to initialize on cgroup v1 hosts).
+- **`/metrics` redirects** — the app mounts at `/metrics/` with a trailing slash.
+- **Exporter won't start: `ISILON_PASS` error** — the password has no default by design; set it.
+- **No `isilon_drive_*` series** — the mock image predates the drive-ID fix; pull the current `awhchan/powerscale-mock-onefs:latest`.
+- **Exporter can't reach the cluster** — check `/healthz` (`active_stat_map` shows what discovery found) and the exporter logs for API errors.
 
-**SSH Tunnel Connection Failed**
-- Verify SSH key permissions
-- Check network connectivity
-- Validate jump host configuration
+## Contributing
 
-**API Authentication Errors**
-- Verify OneFS API credentials
-- Check API version compatibility
-- Validate user permissions
+1. Fork, branch from `main`, make your change.
+2. Add/adjust tests; keep `black`, `ruff`, `mypy`, and `pip-audit` clean.
+3. Open a PR — CI must be green before merge.
 
-**Metrics Not Updating**
-- Check cluster connectivity
-- Verify API endpoint accessibility
-- Review scraper logs
+## License
 
-### Debug Mode
-
-Enable debug logging:
-```bash
-export LOG_LEVEL=DEBUG
-python main.py
-```
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
-
-### Development Guidelines
-
-- Follow PEP 8 style guidelines
-- Add unit tests for new features
-- Update documentation
-- Ensure all CI checks pass
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Dell Technologies for PowerScale/Isilon API documentation
-- Prometheus community for metrics best practices
-- Grafana for visualization platform
-- FastAPI for modern web framework
-
-## 📞 Support
-
-For issues and questions:
-- Create GitHub Issue for bug reports
-- Check documentation for common solutions
-- Review logs for error details
-
----
-
-**Note**: This exporter is designed for monitoring Dell PowerScale/Isilon storage clusters and requires proper API access and network connectivity to function correctly.
+MIT — see [LICENSE](LICENSE).

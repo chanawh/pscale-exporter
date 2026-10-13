@@ -13,6 +13,12 @@ services:
       dockerfile: ./mock_onefs/Dockerfile
     ports:
       - "8443:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-skf", "https://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   exporter:
     build:
@@ -27,4 +33,5 @@ services:
       ISILON_PASS: demo
       SCRAPE_INTERVAL: 15
     depends_on:
-      - mock-onefs
+      mock-onefs:
+        condition: service_healthy

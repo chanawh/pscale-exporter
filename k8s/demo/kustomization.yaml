@@ -5,10 +5,9 @@ kind: Kustomization
 # Apply with: kubectl apply -k k8s/demo/
 
 resources:
-  - ../manifests/namespace.yaml
-  - ../manifests/deployment.yaml
-  - ../manifests/service-clusterip.yaml
-  - ../manifests/networkpolicy.yaml
+  # Base manifests, referenced as a directory (kubectl's kustomize blocks
+  # direct '../' file references, so the base must be a kustomization).
+  - ../manifests
   - mock-onefs.yaml
   - demo-secret.yaml
 

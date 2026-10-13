@@ -7,7 +7,10 @@ PowerScale hardware, no cloud account needed. Images are pulled from Docker Hub
 ## Run it
 
 ```bash
-kind create cluster --name pscale-demo
+# Pin the node image on Docker Desktop for Windows: kind's default
+# kindest/node:v1.37.0 fails to initialize there (kubeadm init never
+# reaches a ready API server); v1.32.0 is verified working.
+kind create cluster --name pscale-demo --image kindest/node:v1.32.0
 
 kubectl apply -k k8s/demo/
 

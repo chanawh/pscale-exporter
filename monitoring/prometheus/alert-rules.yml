@@ -54,18 +54,6 @@ groups:
       description: "CPU usage is {{ $value }}% on node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} for more than 5 minutes"
       runbook_url: "https://runbooks.company.com/powerscale-high-cpu"
 
-  - alert: PowerScaleCriticalMemory
-    expr: isilon_node_memory_used_gb > (isilon_node_memory_total_gb * 0.95)
-    for: 5m
-    labels:
-      severity: critical
-      service: powerscale
-      team: storage
-    annotations:
-      summary: "Critical memory usage on PowerScale node {{ $labels.node_id }}"
-      description: "Memory usage is {{ $value }}GB ({{ $value | humanizePercentage }}) on node {{ $labels.node_id }}"
-      runbook_url: "https://runbooks.company.com/powerscale-high-memory"
-
   - alert: PowerScaleCriticalCapacity
     expr: (isilon_cluster_capacity_bytes_used / isilon_cluster_capacity_bytes_total) > 0.95
     for: 15m
@@ -129,18 +117,6 @@ groups:
       description: "CPU usage is {{ $value }}% on node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} for more than 10 minutes"
       runbook_url: "https://runbooks.company.com/powerscale-high-cpu"
 
-  - alert: PowerScaleHighMemory
-    expr: isilon_node_memory_used_gb > (isilon_node_memory_total_gb * 0.85)
-    for: 15m
-    labels:
-      severity: warning
-      service: powerscale
-      team: storage
-    annotations:
-      summary: "High memory usage on PowerScale node {{ $labels.node_id }}"
-      description: "Memory usage is {{ $value }}GB ({{ $value | humanizePercentage }}) on node {{ $labels.node_id }}"
-      runbook_url: "https://runbooks.company.com/powerscale-high-memory"
-
   - alert: PowerScaleHighCapacity
     expr: (isilon_cluster_capacity_bytes_used / isilon_cluster_capacity_bytes_total) > 0.85
     for: 30m
@@ -164,18 +140,6 @@ groups:
       summary: "High drive latency on PowerScale node {{ $labels.node_id }}"
       description: "Drive {{ $labels.drive_id }} latency is {{ $value }}ms on node {{ $labels.node_id }}"
       runbook_url: "https://runbooks.company.com/powerscale-drive-latency"
-
-  - alert: PowerScaleHighNetworkErrors
-    expr: rate(isilon_node_net_errors_total[5m]) > 10
-    for: 10m
-    labels:
-      severity: warning
-      service: powerscale
-      team: storage
-    annotations:
-      summary: "High network errors on PowerScale node {{ $labels.node_id }}"
-      description: "Network error rate is {{ $value }}/sec on node {{ $labels.node_id }}"
-      runbook_url: "https://runbooks.company.com/powerscale-network-errors"
 
   - alert: PowerScaleHighDiskBusy
     expr: isilon_node_disk_busy_pct > 90

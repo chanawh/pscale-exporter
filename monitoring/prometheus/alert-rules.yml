@@ -15,8 +15,7 @@ groups:
     annotations:
       summary: "PowerScale cluster {{ $labels.cluster_name }} is DOWN"
       description: "PowerScale cluster {{ $labels.cluster_name }} has been down for more than 1 minute"
-      runbook_url: "https://runbooks.company.com/powerscale-cluster-down"
-      dashboard_url: "http://grafana.company.com/d/powerscale-overview"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscaleclusterdown"
 
   - alert: PowerScaleNodeDown
     expr: isilon_node_status == 0
@@ -28,7 +27,7 @@ groups:
     annotations:
       summary: "PowerScale node {{ $labels.node_id }} is DOWN"
       description: "Node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} has been down for more than 2 minutes"
-      runbook_url: "https://runbooks.company.com/powerscale-node-down"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalenodedown"
 
   - alert: PowerScaleDriveFailure
     expr: isilon_drive_health == 0
@@ -40,7 +39,7 @@ groups:
     annotations:
       summary: "Drive failure on PowerScale node {{ $labels.node_id }}"
       description: "Drive {{ $labels.drive_id }} on node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} has failed"
-      runbook_url: "https://runbooks.company.com/powerscale-drive-failure"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscaledrivefailure"
 
   - alert: PowerScaleCriticalCPU
     expr: isilon_node_cpu_user_pct > 95
@@ -52,7 +51,7 @@ groups:
     annotations:
       summary: "Critical CPU usage on PowerScale node {{ $labels.node_id }}"
       description: "CPU usage is {{ $value }}% on node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} for more than 5 minutes"
-      runbook_url: "https://runbooks.company.com/powerscale-high-cpu"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalecriticalcpu"
 
   - alert: PowerScaleCriticalCapacity
     expr: (isilon_cluster_capacity_bytes_used / isilon_cluster_capacity_bytes_total) > 0.95
@@ -64,7 +63,7 @@ groups:
     annotations:
       summary: "Critical storage capacity usage on {{ $labels.cluster_name }}"
       description: "Storage usage is {{ $value | humanizePercentage }} on cluster {{ $labels.cluster_name }}"
-      runbook_url: "https://runbooks.company.com/powerscale-storage-capacity"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalecriticalcapacity"
 
   - alert: PowerScaleReplicationStalled
     expr: isilon_replication_lag_seconds > 3600
@@ -76,7 +75,7 @@ groups:
     annotations:
       summary: "Replication stalled on {{ $labels.cluster_name }}"
       description: "Replication lag is {{ $value }} seconds ({{ $value | humanizeDuration }}) on cluster {{ $labels.cluster_name }}"
-      runbook_url: "https://runbooks.company.com/powerscale-replication-stalled"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalereplicationstalled"
 
   - alert: PowerScaleExporterDown
     expr: up{job="isilon-exporter"} == 0
@@ -88,7 +87,7 @@ groups:
     annotations:
       summary: "PowerScale exporter is down"
       description: "PowerScale exporter has been down for more than 2 minutes"
-      runbook_url: "https://runbooks.company.com/powerscale-exporter-down"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscaleexporterdown"
 
 - name: powerscale-warning.rules
   rules:
@@ -103,7 +102,7 @@ groups:
     annotations:
       summary: "PowerScale cluster {{ $labels.cluster_name }} is degraded"
       description: "PowerScale cluster {{ $labels.cluster_name }} is experiencing issues with metric collection"
-      runbook_url: "https://runbooks.company.com/powerscale-cluster-degraded"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscaleclusterdegraded"
 
   - alert: PowerScaleHighCPU
     expr: isilon_node_cpu_user_pct > 80
@@ -115,7 +114,7 @@ groups:
     annotations:
       summary: "High CPU usage on PowerScale node {{ $labels.node_id }}"
       description: "CPU usage is {{ $value }}% on node {{ $labels.node_id }} in cluster {{ $labels.cluster_name }} for more than 10 minutes"
-      runbook_url: "https://runbooks.company.com/powerscale-high-cpu"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalehighcpu"
 
   - alert: PowerScaleHighCapacity
     expr: (isilon_cluster_capacity_bytes_used / isilon_cluster_capacity_bytes_total) > 0.85
@@ -127,7 +126,7 @@ groups:
     annotations:
       summary: "High storage capacity usage on {{ $labels.cluster_name }}"
       description: "Storage usage is {{ $value | humanizePercentage }} on cluster {{ $labels.cluster_name }}"
-      runbook_url: "https://runbooks.company.com/powerscale-storage-capacity"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalehighcapacity"
 
   - alert: PowerScaleHighDriveLatency
     expr: isilon_drive_latency_ms > 50
@@ -139,7 +138,7 @@ groups:
     annotations:
       summary: "High drive latency on PowerScale node {{ $labels.node_id }}"
       description: "Drive {{ $labels.drive_id }} latency is {{ $value }}ms on node {{ $labels.node_id }}"
-      runbook_url: "https://runbooks.company.com/powerscale-drive-latency"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalehighdrivelatency"
 
   - alert: PowerScaleHighDiskBusy
     expr: isilon_node_disk_busy_pct > 90
@@ -151,7 +150,7 @@ groups:
     annotations:
       summary: "High disk busy percentage on PowerScale node {{ $labels.node_id }}"
       description: "Disk busy percentage is {{ $value }}% on node {{ $labels.node_id }}"
-      runbook_url: "https://runbooks.company.com/powerscale-disk-busy"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalehighdiskbusy"
 
   - alert: PowerScaleReplicationLag
     expr: isilon_replication_lag_seconds > 300
@@ -163,7 +162,7 @@ groups:
     annotations:
       summary: "High replication lag on {{ $labels.cluster_name }}"
       description: "Replication lag is {{ $value }} seconds on cluster {{ $labels.cluster_name }}"
-      runbook_url: "https://runbooks.company.com/powerscale-replication-lag"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalereplicationlag"
 
   - alert: PowerScaleExporterSlow
     expr: scrape_duration_seconds{job="isilon-exporter"} > 30
@@ -175,4 +174,4 @@ groups:
     annotations:
       summary: "PowerScale exporter is slow"
       description: "Scrape duration is {{ $value }}s for PowerScale exporter"
-      runbook_url: "https://runbooks.company.com/powerscale-exporter-slow"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscaleexporterslow"

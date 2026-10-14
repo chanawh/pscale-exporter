@@ -180,6 +180,10 @@ The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup,
 - The Kubernetes manifests include a NetworkPolicy: ingress only on `:8000`, egress only to DNS and the OneFS API port (plus 80/443).
 - Credentials are never defaulted: `ISILON_PASS` is fail-fast when unset. Prefer `auth.existingSecret` / a pre-created Secret over passing passwords on a command line.
 - Dependencies are hash-pinned (`requirements.txt` generated from `requirements.in`); CI runs `pip-audit`.
+- **Known limitation:** the exporter serves plain HTTP on `:8000` — there is
+  no native TLS support yet. Inside the cluster this is contained by the
+  NetworkPolicy; for exposure outside the cluster, terminate TLS at your
+  ingress or reverse proxy.
 
 ## Development
 

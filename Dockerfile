@@ -14,7 +14,7 @@ RUN apt-get update -y \
     && useradd --create-home --uid 10001 appuser \
     && chown appuser:appuser /app
 COPY --from=builder /install /usr/local
-COPY --chown=appuser:appuser exporter/main.py exporter/scraper.py ./
+COPY --chown=appuser:appuser exporter/*.py ./
 USER appuser
 EXPOSE 8000
 CMD ["python", "main.py"]

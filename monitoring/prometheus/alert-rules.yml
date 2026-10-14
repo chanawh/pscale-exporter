@@ -128,6 +128,30 @@ groups:
       description: "Storage usage is {{ $value | humanizePercentage }} on cluster {{ $labels.cluster_name }}"
       runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalehighcapacity"
 
+  - alert: PowerScaleCapacityForecast30d
+    expr: isilon_cluster_capacity_days_until_full < 30
+    for: 1h
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Capacity forecast: {{ $labels.cluster_name }} full within 30 days"
+      description: "At the current 7-day growth trend, cluster {{ $labels.cluster_name }} runs out of capacity in {{ $value }} days"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalecapacityforecast30d"
+
+  - alert: PowerScaleCapacityForecast7d
+    expr: isilon_cluster_capacity_days_until_full < 7
+    for: 30m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Capacity forecast: {{ $labels.cluster_name }} full within 7 days"
+      description: "At the current 7-day growth trend, cluster {{ $labels.cluster_name }} runs out of capacity in {{ $value }} days"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalecapacityforecast7d"
+
   - alert: PowerScaleHighDriveLatency
     expr: isilon_drive_latency_ms > 50
     for: 20m
@@ -175,3 +199,27 @@ groups:
       summary: "PowerScale exporter is slow"
       description: "Scrape duration is {{ $value }}s for PowerScale exporter"
       runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscaleexporterslow"
+
+  - alert: PowerScaleScrapeFailing
+    expr: avg_over_time(isilon_exporter_last_scrape_successful[15m]) < 0.9
+    for: 10m
+    labels:
+      severity: warning
+      service: powerscale
+      team: monitoring
+    annotations:
+      summary: "PowerScale exporter scrapes failing"
+      description: "Less than 90% of scrapes succeeded over the last 15 minutes for PowerScale exporter"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalescrapefailing"
+
+  - alert: PowerScaleApiErrorsSpike
+    expr: rate(isilon_exporter_api_errors_total[15m]) > 0.05
+    for: 15m
+    labels:
+      severity: warning
+      service: powerscale
+      team: monitoring
+    annotations:
+      summary: "PowerScale exporter API error spike"
+      description: "OneFS API error rate is {{ $value }}/sec over the last 15 minutes for PowerScale exporter"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscaleapierrorsspike"

@@ -1,0 +1,17 @@
+# Recording Rules
+# PowerScale Monitoring Stack - Portfolio Version
+#
+# Precomputed series used by capacity-forecast alerts. The days-until-full
+# rule fits a 7-day linear trend to used capacity; clamp_min(deriv, 1)
+# keeps the division safe when usage is flat or shrinking (yields a very
+# large day count instead of div-by-zero or a negative forecast).
+
+groups:
+- name: powerscale-capacity.rules
+  interval: 5m
+  rules:
+  - record: isilon_cluster_capacity_used_ratio
+    expr: isilon_cluster_capacity_bytes_used / isilon_cluster_capacity_bytes_total
+
+  - record: isilon_cluster_capacity_days_until_full
+    expr: (isilon_cluster_capacity_bytes_total - isilon_cluster_capacity_bytes_used) / clamp_min(deriv(isilon_cluster_capacity_bytes_used[7d]), 1) / 86400

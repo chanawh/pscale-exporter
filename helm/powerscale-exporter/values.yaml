@@ -83,3 +83,11 @@ podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8000"
   prometheus.io/path: "/metrics/"
+
+# v1.2: free-form extra environment variables, e.g.
+# extraEnv:
+#   - name: METRICS_AUTH_TOKEN
+#     valueFrom: { secretKeyRef: { name: metrics-auth, key: token } }
+#   - name: SLOW_SCRAPE_INTERVAL
+#     value: "120"
+extraEnv: []

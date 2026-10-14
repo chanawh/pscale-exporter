@@ -31,7 +31,7 @@ flowchart LR
     P --> AM["Alertmanager"]
 ```
 
-The exporter is a FastAPI app (`exporter/`). A background thread polls OneFS on `SCRAPE_INTERVAL`, caches the latest values, and serves them from `/metrics/` in Prometheus format. `/healthz` reports `{"status": "online", ...}` with discovery state (or `503` if the scraper thread has died).
+The exporter is a FastAPI app (`exporter/`). A background thread polls OneFS on `SCRAPE_INTERVAL`, caches the latest values, and serves them from `/metrics/` in Prometheus format. `/healthz` reports `{"status": "online", ...}` with discovery state (or `503` if the scraper thread has died). `/livez` is the k8s liveness probe (always 200); `/readyz` returns 200 only after the first successful scrape, so a fresh pod never serves empty metrics.
 
 ## Quickstart
 
@@ -44,6 +44,29 @@ docker compose -f docker-compose.demo.yml up --build
 ```
 
 Then open http://localhost:8000/metrics/ (note the trailing slash) and http://localhost:8000/healthz.
+
+### Failure injection (demo only)
+
+The mock can simulate cluster faults so you can watch the dashboard and
+alerts react — no hardware needed:
+
+```bash
+# Simulate a drive failure (drive 1:1 goes unhealthy + CRITICAL event)
+curl -sk -X POST https://localhost:8443/platform/1/faults \
+  -H 'Content-Type: application/json' -d '{"scenario":"drive-failure"}'
+
+# Simulate a node going down
+curl -sk -X POST https://localhost:8443/platform/1/faults \
+  -H 'Content-Type: application/json' -d '{"scenario":"node-down"}'
+
+# Back to healthy
+curl -sk -X POST https://localhost:8443/platform/1/faults \
+  -H 'Content-Type: application/json' -d '{"scenario":"clear"}'
+```
+
+Watch `isilon_drive_health` drop to 0 (fires `PowerScaleDriveFailure`)
+or `isilon_node_status` drop (fires `PowerScaleNodeDown`). The CI e2e job
+exercises the drive-failure round-trip on every run.
 
 ### Option B — kind + Kustomize demo
 
@@ -139,6 +162,22 @@ All series carry `cluster_name`. Node series add `node_id`; drive series add `no
 | `isilon_exporter_api_errors_total` | Failed OneFS API calls |
 | `isilon_exporter_scrape_duration_seconds` | Scrape duration (histogram) |
 
+### v1.2 metric families
+
+Collected on a slower cadence (`SLOW_SCRAPE_INTERVAL`, default 300s) —
+see Configuration. Each family is discovered independently and skipped
+cleanly if the cluster doesn't expose it.
+
+| Metric | Description |
+|--------|-------------|
+| `isilon_cluster_event_info` / `isilon_cluster_event_timestamp_seconds` | OneFS cluster events (`severity`, `event_id`, `node_id` labels; capped at `MAX_EVENTS`) |
+| `isilon_snapshot_count` / `isilon_snapshot_bytes_total` | Snapshot count and space consumed |
+| `isilon_storagepool_bytes_total` / `isilon_storagepool_bytes_used` | Per-pool (`pool` label) capacity |
+| `isilon_node_temp_celsius` / `isilon_node_fan_rpm` / `isilon_node_psu_healthy` | Hardware sensors (`node_id`, `sensor` labels) |
+| `isilon_dedupe_saved_bytes` / `isilon_dedupe_ratio` | Deduplication savings |
+| `isilon_cloudpool_used_bytes` | Cloud pool usage (`pool` label) |
+| `isilon_cluster_version_info` / `isilon_node_version_info` | OneFS version (`version` label; node skew is upgrade-signal) |
+
 Plus the standard `python_*` / `process_*` series from `prometheus_client`.
 
 ## Monitoring & alerting
@@ -149,17 +188,23 @@ The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup,
 - **Grafana** — http://localhost:13001, with the provisioned dashboard **"PowerScale Cluster - Complete Monitoring"**: 15 panels covering cluster health, capacity, node status, CPU, memory, network, disk I/O, drive health/performance, NFS/SMB shares, quotas, replication lag, and scrape duration
 - **Alertmanager** — http://localhost:19093 (`monitoring/alertmanager/alertmanager.yml`)
 
-14 alert rules (`monitoring/prometheus/alert-rules.yml`), all firing on metrics the exporter actually emits:
+18 alert rules (`monitoring/prometheus/alert-rules.yml`), all firing on metrics the exporter actually emits:
 
 | Alert | Condition |
 |-------|-----------|
 | `PowerScaleClusterDown` / `PowerScaleNodeDown` / `PowerScaleDriveFailure` | health == 0 |
 | `PowerScaleCriticalCPU` / `PowerScaleHighCPU` | CPU user % > 95 / 80 |
 | `PowerScaleCriticalCapacity` / `PowerScaleHighCapacity` | used / total > 0.95 / 0.85 |
+| `PowerScaleCapacityForecast7d` / `PowerScaleCapacityForecast30d` | forecast full within 7 / 30 days |
 | `PowerScaleHighDiskBusy` | disk busy % > 90 |
 | `PowerScaleHighDriveLatency` | drive latency > 50ms |
 | `PowerScaleReplicationStalled` / `PowerScaleReplicationLag` | lag > 3600s / 300s |
 | `PowerScaleExporterDown` / `PowerScaleExporterSlow` / `PowerScaleClusterDegraded` | exporter health / scrape duration |
+| `PowerScaleScrapeFailing` / `PowerScaleApiErrorsSpike` | scrape success / API error rate |
+
+Recording rules (`monitoring/prometheus/recording-rules.yml`) precompute
+capacity ratio and days-until-full forecasts. Every alert links to a
+triage runbook in `docs/runbooks.md`.
 
 ## Configuration
 
@@ -170,6 +215,10 @@ The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup,
 | `ISILON_USER` | `root` | OneFS API user |
 | `ISILON_PASS` | _(none — required, fail-fast)_ | OneFS API password |
 | `SCRAPE_INTERVAL` | `30` | Scrape interval (seconds) |
+| `SLOW_SCRAPE_INTERVAL` | `300` | Scrape interval for low-churn collectors (events, snapshots, pools, sensors) |
+| `MAX_EVENTS` | `50` | Max OneFS events kept as series (cardinality guard) |
+| `METRICS_AUTH_TOKEN` | _(unset = open)_ | Bearer token required for `/metrics/` when set |
+| `TLS_CERT_FILE` / `TLS_KEY_FILE` | _(unset = plain HTTP)_ | Serve `:8000` over TLS when both are set |
 | `TOMBSTONE_TTL` | `86400` | Seconds before a silent node is dropped |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `MAX_RETRIES` / `TIMEOUT` / `CIRCUIT_BREAKER_THRESHOLD` | `3` / `30` / `5` | Scraper resilience tuning |
@@ -180,10 +229,11 @@ The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup,
 - The Kubernetes manifests include a NetworkPolicy: ingress only on `:8000`, egress only to DNS and the OneFS API port (plus 80/443).
 - Credentials are never defaulted: `ISILON_PASS` is fail-fast when unset. Prefer `auth.existingSecret` / a pre-created Secret over passing passwords on a command line.
 - Dependencies are hash-pinned (`requirements.txt` generated from `requirements.in`); CI runs `pip-audit`.
-- **Known limitation:** the exporter serves plain HTTP on `:8000` — there is
-  no native TLS support yet. Inside the cluster this is contained by the
-  NetworkPolicy; for exposure outside the cluster, terminate TLS at your
-  ingress or reverse proxy.
+- The exporter can serve `:8000` over native TLS — set `TLS_CERT_FILE`
+  and `TLS_KEY_FILE` (e.g. mounted from a k8s Secret; Helm users can pass
+  them via `extraEnv`). Bearer-token auth on `/metrics/` is available via
+  `METRICS_AUTH_TOKEN`; `/healthz`, `/readyz`, and `/livez` stay open so
+  probes and load balancers keep working.
 
 ## Development
 
@@ -195,7 +245,7 @@ mypy exporter/                  # types
 pip-audit                       # dependency vulnerabilities
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.11 and 3.12, builds both images, and publishes `awhchan/powerscale-exporter` and `awhchan/powerscale-mock-onefs` to Docker Hub from `main`. The EKS deploy job is manual-only (`workflow_dispatch`).
+CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.11 and 3.12, builds both images, runs an end-to-end smoke test (boots the demo stack, asserts the key `isilon_*` series, exercises the mock's drive-failure injection), and publishes `awhchan/powerscale-exporter` and `awhchan/powerscale-mock-onefs` to Docker Hub from `main`. The EKS deploy job is manual-only (`workflow_dispatch`).
 
 ## Project structure
 

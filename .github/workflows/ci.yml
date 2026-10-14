@@ -265,3 +265,42 @@ jobs:
         EOF
         
         echo "Ingress created. Access via: http://powerscale.${{ secrets.AWS_DOMAIN }}"
+
+  # End-to-end demo smoke test (mock OneFS + exporter via compose)
+  e2e:
+    name: E2E demo smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Boot demo stack
+        run: docker compose -f docker-compose.demo.yml up --build -d
+      - name: Wait for exporter healthy
+        run: |
+          for i in $(seq 1 36); do
+            if curl -sf http://localhost:8000/healthz | grep -q '"status":"online"'; then echo "exporter online"; break; fi
+            sleep 5
+          done
+          curl -sf http://localhost:8000/healthz | grep -q '"status":"online"'
+      - name: Assert key metrics present
+        run: |
+          for i in $(seq 1 36); do
+            curl -sf http://localhost:8000/metrics/ -o /tmp/metrics.txt
+            ok=1
+            for m in isilon_cluster_health isilon_node_status isilon_drive_health isilon_cluster_capacity_bytes_total isilon_snapshot_count isilon_cluster_event_info isilon_node_version_info isilon_storagepool_bytes_total isilon_dedupe_saved_bytes isilon_node_temp_celsius; do
+              grep -q "^$m" /tmp/metrics.txt || ok=0
+            done
+            if [ "$ok" = "1" ]; then echo "all series present"; break; fi
+            sleep 5
+          done
+          [ "$ok" = "1" ]
+      - name: Failure injection round-trip
+        run: |
+          curl -sfk -X POST https://localhost:8443/platform/1/faults -H 'Content-Type: application/json' -d '{"scenario":"drive-failure"}'
+          sleep 45
+          curl -sf http://localhost:8000/metrics/ | grep -E 'isilon_drive_health\{[^}]*drive_id="1"[^}]*\} 0(\.0)?$' && echo "fault observed"
+          curl -sfk -X POST https://localhost:8443/platform/1/faults -H 'Content-Type: application/json' -d '{"scenario":"clear"}'
+      - name: Validate Prometheus configs
+        run: python3 -c "import yaml,glob; [yaml.safe_load(open(f)) for f in glob.glob('monitoring/prometheus/*.yml')]; print('prometheus configs valid')"
+      - name: Teardown
+        if: always()
+        run: docker compose -f docker-compose.demo.yml down -v

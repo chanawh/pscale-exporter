@@ -180,3 +180,56 @@ of PowerScaleReplicationStalled — same triage, RPO still intact.
    exporter logs for per-endpoint timings.
 3. Mitigations: raise `SCRAPE_INTERVAL`, raise `TIMEOUT`, or reduce
    scrape load (fewer expensive stat keys).
+
+## PowerScaleCapacityForecast30d
+
+**Severity:** warning
+
+**Fires when:** linear forecast (`predict_linear` over 7 days) says the
+cluster fills within 30 days.
+
+1. This is the early-warning companion to PowerScaleHighCapacity — same
+   triage (snapshots, quotas, tiering), but you have weeks, not days.
+2. Check whether the growth rate is real or an anomaly: a single bulk
+   ingest can skew the 7-day derivative. Compare
+   `isilon_cluster_capacity_days_until_full` trend in Grafana.
+3. Start procurement / node-add planning now.
+
+## PowerScaleCapacityForecast7d
+
+**Severity:** critical
+
+**Fires when:** the cluster is forecast to fill within 7 days.
+
+1. Treat like PowerScaleCriticalCapacity: stop-everything, find the
+   growth (snapshots, quotas, runaway shares), free space immediately.
+2. If the forecast is wrong (e.g. a one-off ingest inflated the
+   derivative), verify with the raw used/total series before standing
+   down — but assume it's right until proven otherwise.
+
+## PowerScaleScrapeFailing
+
+**Severity:** warning
+
+**Fires when:** the exporter reports unsuccessful scrapes for 10 minutes
+(`isilon_exporter_last_scrape_successful` averaged under 0.9).
+
+1. Check exporter logs for `SCRAPE_FAIL` lines and
+   `isilon_exporter_api_errors_total` broken down by endpoint.
+2. Usual causes: OneFS API slowness under cluster load, expired
+   credentials, or a network path issue between exporter and cluster.
+3. The cluster itself may be healthy — this alert is about telemetry,
+   but treat gaps in monitoring as urgent.
+
+## PowerScaleApiErrorsSpike
+
+**Severity:** warning
+
+**Fires when:** the OneFS API error rate exceeds 0.05/sec over 15 minutes.
+
+1. Break down `isilon_exporter_api_errors_total` by endpoint label to
+   find the failing API surface.
+2. Correlate with cluster load and the circuit breaker state in logs
+   ("Circuit breaker OPEN" means the exporter is already backing off).
+3. Persistent errors on one endpoint often mean a OneFS-side issue
+   (service restart, upgrade in progress) rather than an exporter bug.

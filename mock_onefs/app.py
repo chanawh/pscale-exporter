@@ -54,7 +54,13 @@ async def cluster_identity():
 @app.get("/platform/3/cluster/nodes")
 @app.get("/platform/1/cluster/nodes")
 async def cluster_nodes():
-    return {"nodes": data.NODES, "total": len(data.NODES)}
+    nodes = data.NODES
+    # Failure injection: report node 3 DOWN without mutating the baseline.
+    if data.FAULTS.get("scenario") == "node-down":
+        nodes = [
+            {**n, "status": "DOWN"} if n.get("id") == 3 else n for n in data.NODES
+        ]
+    return {"nodes": nodes, "total": len(nodes)}
 
 
 @app.get("/platform/1/statistics/keys")
@@ -98,6 +104,62 @@ async def nfs_exports():
 @app.get("/platform/3/protocols/smb/shares")
 async def smb_shares():
     return {"shares": data.SMB_SHARES, "total": len(data.SMB_SHARES)}
+
+
+# ---------------------------------------------------------------------------
+# v1.2: deeper OneFS coverage
+# ---------------------------------------------------------------------------
+
+
+@app.get("/platform/3/event/events")
+async def events():
+    return {"events": data.events()}
+
+
+@app.get("/platform/1/snapshot/snapshots")
+async def snapshots():
+    snaps = data.snapshots()
+    return {"snapshots": snaps, "total": len(snaps)}
+
+
+@app.get("/platform/3/storagepool/storagepools")
+async def storagepools():
+    pools = data.storagepools()
+    return {"storagepools": pools, "total": len(pools)}
+
+
+@app.get("/platform/3/hardware/sensors")
+async def hardware_sensors():
+    sensors = data.sensors()
+    return {"sensors": sensors, "total": len(sensors)}
+
+
+@app.get("/platform/3/dedupe/summary")
+async def dedupe_summary():
+    return data.dedupe()
+
+
+@app.get("/platform/3/cloud/pools")
+async def cloud_pools():
+    pools = data.cloudpools()
+    return {"pools": pools, "total": len(pools)}
+
+
+@app.post("/platform/1/faults")
+async def set_fault(request: Request):
+    """Failure injection for demos/alert testing.
+
+    Body: {"scenario": "drive-failure" | "node-down" | "clear"}.
+    "drive-failure": drive 1:1 reports FAILED + a CRITICAL event appears.
+    "node-down": node 3 reports status DOWN.
+    "clear": back to the healthy baseline.
+    """
+    body = await request.json()
+    scenario = body.get("scenario")
+    if scenario not in ("drive-failure", "node-down", "clear"):
+        return JSONResponse({"error": "unknown scenario"}, status_code=400)
+    data.FAULTS["scenario"] = None if scenario == "clear" else scenario
+    return {"scenario": data.FAULTS["scenario"]}
 
 
 @app.get("/healthz")

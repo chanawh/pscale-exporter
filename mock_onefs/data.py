@@ -15,9 +15,27 @@ CLUSTER_VERSION = "9.5.0"
 FAULTS = {"scenario": None}
 
 NODES = [
-    {"id": 1, "lnn": 1, "name": "mock-node-1", "status": "OK", "onefs_version": "9.5.0"},
-    {"id": 2, "lnn": 2, "name": "mock-node-2", "status": "OK", "onefs_version": "9.5.0"},
-    {"id": 3, "lnn": 3, "name": "mock-node-3", "status": "OK", "onefs_version": "9.5.0"},
+    {
+        "id": 1,
+        "lnn": 1,
+        "name": "mock-node-1",
+        "status": "OK",
+        "onefs_version": "9.5.0",
+    },
+    {
+        "id": 2,
+        "lnn": 2,
+        "name": "mock-node-2",
+        "status": "OK",
+        "onefs_version": "9.5.0",
+    },
+    {
+        "id": 3,
+        "lnn": 3,
+        "name": "mock-node-3",
+        "status": "OK",
+        "onefs_version": "9.5.0",
+    },
 ]
 
 DRIVES_PER_NODE = 4
@@ -100,9 +118,7 @@ def drives() -> list:
                     "device": f"/dev/da{bay - 1}",
                     "busy": 100.0 if failed else round(random.uniform(2.0, 25.0), 1),
                     "access_latency": (
-                        120.0
-                        if failed
-                        else round(random.uniform(0.4, 3.2), 2)
+                        120.0 if failed else round(random.uniform(0.4, 3.2), 2)
                     ),
                     "iosched_queue": (
                         round(random.uniform(8.0, 20.0), 2)

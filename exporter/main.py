@@ -4,11 +4,6 @@ import threading
 import time
 from time import perf_counter
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
-from starlette.middleware.base import BaseHTTPMiddleware
-
 from collectors import (
     parse_cloudpools,
     parse_dedupe,
@@ -18,7 +13,11 @@ from collectors import (
     parse_storagepools,
     parse_versions,
 )
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from scraper import OneFSClient
+from starlette.middleware.base import BaseHTTPMiddleware
 
 logging.basicConfig(
     level=logging.INFO,
@@ -178,9 +177,7 @@ EVENT_TS = Gauge(
     "Unix timestamp of OneFS cluster event",
     ["cluster_name", "severity", "event_id", "node_id"],
 )
-SNAPSHOT_COUNT = Gauge(
-    "isilon_snapshot_count", "Number of snapshots", ["cluster_name"]
-)
+SNAPSHOT_COUNT = Gauge("isilon_snapshot_count", "Number of snapshots", ["cluster_name"])
 SNAPSHOT_BYTES = Gauge(
     "isilon_snapshot_bytes_total",
     "Total bytes consumed by snapshots",
@@ -214,9 +211,7 @@ DEDUPE_SAVED = Gauge(
     "Bytes saved by deduplication",
     ["cluster_name"],
 )
-DEDUPE_RATIO = Gauge(
-    "isilon_dedupe_ratio", "Deduplication ratio", ["cluster_name"]
-)
+DEDUPE_RATIO = Gauge("isilon_dedupe_ratio", "Deduplication ratio", ["cluster_name"])
 CLOUDPOOL_USED = Gauge(
     "isilon_cloudpool_used_bytes",
     "Cloud pool used bytes",
@@ -651,7 +646,7 @@ def _discover_endpoint(
             if isinstance(raw, list) and raw:
                 logger.info(f"[DISCOVER] endpoint OK: v{ver}/{ep}")
                 return ver, ep
-        except Exception:  # noqa: BLE001 -- probe: any failure means try next
+        except Exception:
             logger.debug(f"[DISCOVER] v{ver}/{ep} probe failed", exc_info=True)
     return None
 

@@ -57,9 +57,7 @@ async def cluster_nodes():
     nodes = data.NODES
     # Failure injection: report node 3 DOWN without mutating the baseline.
     if data.FAULTS.get("scenario") == "node-down":
-        nodes = [
-            {**n, "status": "DOWN"} if n.get("id") == 3 else n for n in data.NODES
-        ]
+        nodes = [{**n, "status": "DOWN"} if n.get("id") == 3 else n for n in data.NODES]
     return {"nodes": nodes, "total": len(nodes)}
 
 

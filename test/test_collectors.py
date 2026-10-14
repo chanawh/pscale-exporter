@@ -4,8 +4,6 @@ The parsers take raw OneFS API payloads and return plain data -- no
 network, no globals -- so every test below feeds canned responses.
 """
 
-import pytest
-
 from collectors import (
     any_list,
     find_list,
@@ -17,7 +15,6 @@ from collectors import (
     parse_storagepools,
     parse_versions,
 )
-
 
 # ---------------------------------------------------------------------------
 # find_list

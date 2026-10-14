@@ -121,8 +121,12 @@ def parse_storagepools(payload):
         out.append(
             {
                 "pool": name,
-                "total": _num(src.get("bytes_total", src.get("total_bytes", src.get("total")))),
-                "used": _num(src.get("bytes_used", src.get("used_bytes", src.get("used")))),
+                "total": _num(
+                    src.get("bytes_total", src.get("total_bytes", src.get("total")))
+                ),
+                "used": _num(
+                    src.get("bytes_used", src.get("used_bytes", src.get("used")))
+                ),
             }
         )
     return out

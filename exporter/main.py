@@ -5,7 +5,21 @@ import time
 from time import perf_counter
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from collectors import (
+    any_list,
+    find_list,
+    parse_cloudpools,
+    parse_dedupe,
+    parse_events,
+    parse_sensors,
+    parse_snapshots,
+    parse_storagepools,
+    parse_versions,
+)
 from scraper import OneFSClient
 
 logging.basicConfig(
@@ -30,6 +44,13 @@ ISILON_USER = os.getenv("ISILON_USER", "root")
 ISILON_PASS = os.getenv("ISILON_PASS", "")
 SCRAPE_INTERVAL = _int_env("SCRAPE_INTERVAL", 30)
 TOMBSTONE_TTL = _int_env("TOMBSTONE_TTL", 24 * 3600)
+# v1.2: slow collectors (events, snapshots, pools, sensors, ...) run on a
+# longer cadence; the fast loop keeps the hot path untouched.
+SLOW_SCRAPE_INTERVAL = _int_env("SLOW_SCRAPE_INTERVAL", 300)
+MAX_EVENTS = _int_env("MAX_EVENTS", 50)
+METRICS_AUTH_TOKEN = os.getenv("METRICS_AUTH_TOKEN", "")
+TLS_CERT_FILE = os.getenv("TLS_CERT_FILE", "")
+TLS_KEY_FILE = os.getenv("TLS_KEY_FILE", "")
 
 if not ISILON_PASS:
     raise RuntimeError("ISILON_PASS is not set: refusing to start without a password")
@@ -148,6 +169,72 @@ API_ERROR_COUNTER = Counter(
     "isilon_exporter_api_errors_total", "Total failed API calls", ["endpoint"]
 )
 
+# v1.2 metric families
+EVENT_INFO = Gauge(
+    "isilon_cluster_event_info",
+    "OneFS cluster event present (1)",
+    ["cluster_name", "severity", "event_id", "node_id"],
+)
+EVENT_TS = Gauge(
+    "isilon_cluster_event_timestamp_seconds",
+    "Unix timestamp of OneFS cluster event",
+    ["cluster_name", "severity", "event_id", "node_id"],
+)
+SNAPSHOT_COUNT = Gauge(
+    "isilon_snapshot_count", "Number of snapshots", ["cluster_name"]
+)
+SNAPSHOT_BYTES = Gauge(
+    "isilon_snapshot_bytes_total",
+    "Total bytes consumed by snapshots",
+    ["cluster_name"],
+)
+POOL_TOTAL = Gauge(
+    "isilon_storagepool_bytes_total",
+    "Storage pool total bytes",
+    ["cluster_name", "pool"],
+)
+POOL_USED = Gauge(
+    "isilon_storagepool_bytes_used",
+    "Storage pool used bytes",
+    ["cluster_name", "pool"],
+)
+NODE_TEMP = Gauge(
+    "isilon_node_temp_celsius",
+    "Hardware temperature sensor (Celsius)",
+    ["cluster_name", "node_id", "sensor"],
+)
+NODE_FAN = Gauge(
+    "isilon_node_fan_rpm", "Fan speed (RPM)", ["cluster_name", "node_id", "sensor"]
+)
+NODE_PSU = Gauge(
+    "isilon_node_psu_healthy",
+    "PSU health (1=ok)",
+    ["cluster_name", "node_id", "sensor"],
+)
+DEDUPE_SAVED = Gauge(
+    "isilon_dedupe_saved_bytes",
+    "Bytes saved by deduplication",
+    ["cluster_name"],
+)
+DEDUPE_RATIO = Gauge(
+    "isilon_dedupe_ratio", "Deduplication ratio", ["cluster_name"]
+)
+CLOUDPOOL_USED = Gauge(
+    "isilon_cloudpool_used_bytes",
+    "Cloud pool used bytes",
+    ["cluster_name", "pool"],
+)
+CLUSTER_VERSION = Gauge(
+    "isilon_cluster_version_info",
+    "Cluster OneFS version present (1)",
+    ["cluster_name", "version"],
+)
+NODE_VERSION = Gauge(
+    "isilon_node_version_info",
+    "Node OneFS version present (1)",
+    ["cluster_name", "node_id", "version"],
+)
+
 STAT_PATTERNS = [
     # --- CPU ---
     ("node.cpu.user.avg", NODE_CPU_USER),
@@ -189,6 +276,25 @@ STAT_PATTERNS = [
 # --- App & Client Setup ---
 app = FastAPI(title="PowerScale Exporter")
 app.mount("/metrics", make_asgi_app())
+
+
+class _MetricsAuthMiddleware(BaseHTTPMiddleware):
+    """v1.2: optional bearer-token gate for /metrics/.
+
+    Enabled only when METRICS_AUTH_TOKEN is set. Health and readiness
+    endpoints stay open so k8s probes and load balancers keep working.
+    """
+
+    async def dispatch(self, request, call_next):
+        if METRICS_AUTH_TOKEN and request.url.path.startswith("/metrics"):
+            want = f"Bearer {METRICS_AUTH_TOKEN}"
+            if request.headers.get("authorization", "") != want:
+                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+        return await call_next(request)
+
+
+app.add_middleware(_MetricsAuthMiddleware)
+
 client = OneFSClient(ISILON_HOST, ISILON_PORT, ISILON_USER, ISILON_PASS)
 
 _cpu_stat_key: str | None = None
@@ -200,6 +306,16 @@ _drive_endpoint: tuple[str, str] | None = None
 _replication_lag_key: str | None = None
 _cap_total_key: str | None = None
 _cap_used_key: str | None = None
+# v1.2 slow-family endpoints (discovered once at startup)
+_events_endpoint: tuple[str, str] | None = None
+_snapshots_endpoint: tuple[str, str] | None = None
+_pools_endpoint: tuple[str, str] | None = None
+_sensors_endpoint: tuple[str, str] | None = None
+_dedupe_endpoint: tuple[str, str] | None = None
+_cloudpools_endpoint: tuple[str, str] | None = None
+_known_events: set[tuple] = set()
+_last_slow_run: float = 0.0
+_ready: bool = False
 
 # ---------------------------------------------------------------------------
 # Discovery helpers
@@ -522,6 +638,115 @@ def _discover_capacity_keys(all_keys: list[str]) -> tuple[str | None, str | None
     return total_key, used_key
 
 
+def _discover_list_endpoint(
+    candidates: list[tuple[str, str]],
+) -> tuple[str, str] | None:
+    """v1.2: probe (version, endpoint) candidates; return the first whose
+    response contains a non-empty list. Best-effort -- a miss just means
+    that metric family is skipped, like the drive endpoint discovery."""
+    for ver, ep in candidates:
+        try:
+            raw = client._request("GET", ep, version=ver, params={"limit": 5})
+            if any_list(raw):
+                logger.info(f"[DISCOVER] list endpoint OK: v{ver}/{ep}")
+                return ver, ep
+        except Exception:  # noqa: BLE001 -- probe: any failure means try next
+            logger.debug(f"[DISCOVER] v{ver}/{ep} probe failed", exc_info=True)
+    return None
+
+
+def _collect_slow(cluster_name: str) -> None:
+    """v1.2: expensive / low-churn collectors, each in its own try block so
+    one failing family cannot take down the others."""
+    global _known_events
+
+    if _events_endpoint:
+        try:
+            ver, ep = _events_endpoint
+            events = parse_events(
+                client._request("GET", ep, version=ver, params={"limit": 200}),
+                max_events=MAX_EVENTS,
+            )
+            seen = set()
+            for e in events:
+                labels = (
+                    cluster_name,
+                    e["severity"],
+                    e["event_id"],
+                    e["node_id"],
+                )
+                seen.add(labels)
+                EVENT_INFO.labels(*labels).set(1)
+                if e["timestamp"]:
+                    EVENT_TS.labels(*labels).set(e["timestamp"])
+            # Expire events that aged out of the API window (cardinality guard)
+            for stale in _known_events - seen:
+                EVENT_INFO.remove(*stale)
+                EVENT_TS.remove(*stale)
+            _known_events = seen
+        except Exception:
+            logger.exception("[!] Events collection failed")
+
+    if _snapshots_endpoint:
+        try:
+            ver, ep = _snapshots_endpoint
+            count, total = parse_snapshots(client._request("GET", ep, version=ver))
+            SNAPSHOT_COUNT.labels(cluster_name=cluster_name).set(count)
+            if total is not None:
+                SNAPSHOT_BYTES.labels(cluster_name=cluster_name).set(total)
+        except Exception:
+            logger.exception("[!] Snapshots collection failed")
+
+    if _pools_endpoint:
+        try:
+            ver, ep = _pools_endpoint
+            for p in parse_storagepools(client._request("GET", ep, version=ver)):
+                if p["total"] is not None:
+                    POOL_TOTAL.labels(cluster_name=cluster_name, pool=p["pool"]).set(
+                        p["total"]
+                    )
+                if p["used"] is not None:
+                    POOL_USED.labels(cluster_name=cluster_name, pool=p["pool"]).set(
+                        p["used"]
+                    )
+        except Exception:
+            logger.exception("[!] Storage pools collection failed")
+
+    if _sensors_endpoint:
+        try:
+            ver, ep = _sensors_endpoint
+            for s in parse_sensors(client._request("GET", ep, version=ver)):
+                gauge = {"temp": NODE_TEMP, "fan": NODE_FAN, "psu": NODE_PSU}[s["kind"]]
+                gauge.labels(
+                    cluster_name=cluster_name, node_id=s["node_id"], sensor=s["sensor"]
+                ).set(s["value"])
+        except Exception:
+            logger.exception("[!] Hardware sensors collection failed")
+
+    if _dedupe_endpoint:
+        try:
+            ver, ep = _dedupe_endpoint
+            d = parse_dedupe(client._request("GET", ep, version=ver))
+            if d:
+                if d["saved_bytes"] is not None:
+                    DEDUPE_SAVED.labels(cluster_name=cluster_name).set(d["saved_bytes"])
+                if d["ratio"] is not None:
+                    DEDUPE_RATIO.labels(cluster_name=cluster_name).set(d["ratio"])
+        except Exception:
+            logger.exception("[!] Dedupe collection failed")
+
+    if _cloudpools_endpoint:
+        try:
+            ver, ep = _cloudpools_endpoint
+            for p in parse_cloudpools(client._request("GET", ep, version=ver)):
+                if p["used"] is not None:
+                    CLOUDPOOL_USED.labels(
+                        cluster_name=cluster_name, pool=p["pool"]
+                    ).set(p["used"])
+        except Exception:
+            logger.exception("[!] Cloud pools collection failed")
+
+
 # ---------------------------------------------------------------------------
 # Per-node helpers
 # ---------------------------------------------------------------------------
@@ -563,6 +788,9 @@ def _node_healthy(n: dict) -> bool:
 def collect_metrics():
     global _cpu_stat_key, _node_endpoint, _active_stat_map, _cpu_core_count
     global _drive_endpoint, _replication_lag_key, _cap_total_key, _cap_used_key
+    global _events_endpoint, _snapshots_endpoint, _pools_endpoint
+    global _sensors_endpoint, _dedupe_endpoint, _cloudpools_endpoint
+    global _last_slow_run, _ready
 
     logger.info(f"[*] Scraper thread started — polling every {SCRAPE_INTERVAL}s")
 
@@ -585,6 +813,26 @@ def collect_metrics():
 
     _drive_endpoint = _discover_drive_endpoint()
     _replication_lag_key = _discover_replication_lag_key()
+
+    # v1.2 slow families -- best-effort discovery, skipped cleanly on miss
+    _events_endpoint = _discover_list_endpoint([("3", "event/events")])
+    _snapshots_endpoint = _discover_list_endpoint([("1", "snapshot/snapshots")])
+    _pools_endpoint = _discover_list_endpoint([("3", "storagepool/storagepools")])
+    _sensors_endpoint = _discover_list_endpoint([("3", "hardware/sensors")])
+    _dedupe_endpoint = _discover_list_endpoint([("3", "dedupe/summary")])
+    _cloudpools_endpoint = _discover_list_endpoint([("3", "cloud/pools")])
+    for name, ep in [
+        ("events", _events_endpoint),
+        ("snapshots", _snapshots_endpoint),
+        ("storagepools", _pools_endpoint),
+        ("sensors", _sensors_endpoint),
+        ("dedupe", _dedupe_endpoint),
+        ("cloudpools", _cloudpools_endpoint),
+    ]:
+        if ep:
+            logger.info(f"[*] {name} endpoint: v{ep[0]}/{ep[1]}")
+        else:
+            logger.info(f"[*] No {name} endpoint discovered — skipping.")
 
     while True:
         loop_start = perf_counter()
@@ -620,10 +868,30 @@ def collect_metrics():
                     NODE_LAST_SEEN.labels(cluster_name=cluster_name, node_id=nid).set(
                         now
                     )
+                    # v1.2: per-node OneFS version (best-effort)
+                    try:
+                        _, nvers = parse_versions(None, [n])
+                        for _, v in nvers:
+                            NODE_VERSION.labels(
+                                cluster_name=cluster_name, node_id=nid, version=v
+                            ).set(1)
+                    except Exception:
+                        logger.debug("node version parse failed", exc_info=True)
 
             CLUSTER_HEALTH.labels(cluster_name=cluster_name).set(
                 1 if (total > 0 and ok == total) else 0
             )
+
+            # --- v1.2: cluster + node OneFS versions (no extra API calls:
+            # identity was already fetched, nodes enumerated above) ---
+            try:
+                cluster_ver, _ = parse_versions(ident, [])
+                if cluster_ver:
+                    CLUSTER_VERSION.labels(
+                        cluster_name=cluster_name, version=cluster_ver
+                    ).set(1)
+            except Exception:
+                logger.debug("version parse failed", exc_info=True)
 
             # --- Per-node stats ---
             if _active_stat_map:
@@ -940,6 +1208,16 @@ def collect_metrics():
                     "[DEBUG] Skipping separate drive performance API - using health endpoint data"
                 )
 
+            # --- v1.2: slow collectors (events, snapshots, pools, sensors,
+            # dedupe, cloud pools) on their own cadence ---
+            _now = time.time()
+            if _now - _last_slow_run >= SLOW_SCRAPE_INTERVAL:
+                _last_slow_run = _now
+                _collect_slow(cluster_name)
+
+            # First fully successful scrape -> /readyz goes 200
+            _ready = True
+
         except Exception:
             logger.exception(f"SCRAPE_FAIL | cluster={cluster_name}")
             CLUSTER_HEALTH.labels(cluster_name=cluster_name).set(0)
@@ -975,6 +1253,24 @@ def healthcheck():
     }
 
 
+@app.get("/livez")
+def livez():
+    """v1.2: liveness -- the process is up. Cheap, always 200."""
+    return {"status": "alive"}
+
+
+@app.get("/readyz")
+def readyz():
+    """v1.2: readiness -- 200 only after the first successful scrape, so
+    k8s doesn't send traffic to a pod serving empty metrics."""
+    if _ready:
+        return {"status": "ready"}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "not ready", "reason": "no successful scrape yet"},
+    )
+
+
 @app.get("/", include_in_schema=False)
 def root():
     return {"ok": True}
@@ -983,4 +1279,10 @@ def root():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # v1.2: optional native TLS. Set both TLS_CERT_FILE and TLS_KEY_FILE
+    # (e.g. mounted from a k8s Secret) to serve HTTPS on :8000.
+    _ssl: dict = {}
+    if TLS_CERT_FILE and TLS_KEY_FILE:
+        _ssl = {"ssl_certfile": TLS_CERT_FILE, "ssl_keyfile": TLS_KEY_FILE}
+        logger.info("[*] TLS enabled for :8000")
+    uvicorn.run(app, host="0.0.0.0", port=8000, **_ssl)

@@ -106,8 +106,8 @@ def load_targets() -> list[dict]:
         if not isinstance(e, dict):
             raise TypeError(f"Invalid target entry (must be an object): {e!r}")
         host = e.get("host")
-        password = e.get("password", e.get("pass", ""))
-        if not host or not password:
+        pw = e.get("password", e.get("pass", ""))
+        if not host or not pw:
             raise RuntimeError(f"Target missing host/password: {e!r}")
         targets.append(
             {
@@ -115,7 +115,7 @@ def load_targets() -> list[dict]:
                 "host": str(host),
                 "port": int(e.get("port", 8080)),
                 "user": str(e.get("user", "root")),
-                "password": str(password),
+                "password": str(pw),
             }
         )
     return targets

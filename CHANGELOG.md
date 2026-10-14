@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-10-13
+
+First hardened release. Twelve PRs took the original exporter from
+broken-CI prototype to a documented, demo-proven, production-shaped
+project:
+
+### Added
+- Test suite (pytest) with black/ruff/mypy/pip-audit gates in CI
+- Mock OneFS cluster (`mock_onefs/`) and hardware-free demo paths:
+  Docker Compose, kind + Kustomize, Helm (`mock.enabled=true`)
+- Helm chart (`helm/powerscale-exporter`) for real-cluster and demo installs
+- Kustomize demo overlay deploying the mock in-cluster
+- Alert runbooks (`docs/runbooks.md`) linked from every alert annotation
+- Release inputs: git tags now publish versioned Docker Hub tags
+  (`:1.0.0`) via `docker/metadata-action` (`type=ref,event=tag`)
+
+### Changed
+- Full README rewrite: verified quickstarts, real metric names from live
+  `/metrics/` output, architecture diagram, accurate config reference
+- Multi-stage Dockerfiles, non-root `appuser` (uid 10001), read-only root
+  filesystem
+- EKS deploy job gated to manual `workflow_dispatch`
+- Hash-pinned dependencies (`requirements.in` → `requirements.txt`)
+
+### Fixed
+- Drive metrics silently skipped: mock drive IDs `bay-N-M` → `N:M`
+  (exporter parses `node:drive` labels)
+- Demo kustomize overlay referenced files outside its root
+  (`LoadRestrictionsRootOnly`) — added base kustomization
+- Exporter refused to start without `ISILON_PASS` in every path
+  (previously only Compose failed fast; `main.py` defaulted to `"a"`)
+- Removed 3 alert rules firing on metrics the exporter never emits
+  (`isilon_node_memory_total_gb`, `isilon_node_net_errors_total`)
+- kind node image pinned to v1.32.0 for Docker Desktop (cgroup v1) hosts
+
+### Removed
+- Stale `deploy-kind.sh` (Podman/`localhost/` flow contradicted the docs)
+- Fabricated metric names and stale deployment paths from the README
+
 ## [0.1.0] - 2024-03-26
 
 ### Added

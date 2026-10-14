@@ -10,8 +10,6 @@ from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from collectors import (
-    any_list,
-    find_list,
     parse_cloudpools,
     parse_dedupe,
     parse_events,
@@ -638,17 +636,20 @@ def _discover_capacity_keys(all_keys: list[str]) -> tuple[str | None, str | None
     return total_key, used_key
 
 
-def _discover_list_endpoint(
+def _discover_endpoint(
     candidates: list[tuple[str, str]],
 ) -> tuple[str, str] | None:
     """v1.2: probe (version, endpoint) candidates; return the first whose
-    response contains a non-empty list. Best-effort -- a miss just means
+    response is a non-empty dict or list. Best-effort -- a miss just means
     that metric family is skipped, like the drive endpoint discovery."""
     for ver, ep in candidates:
         try:
             raw = client._request("GET", ep, version=ver, params={"limit": 5})
-            if any_list(raw):
-                logger.info(f"[DISCOVER] list endpoint OK: v{ver}/{ep}")
+            if isinstance(raw, dict) and raw:
+                logger.info(f"[DISCOVER] endpoint OK: v{ver}/{ep}")
+                return ver, ep
+            if isinstance(raw, list) and raw:
+                logger.info(f"[DISCOVER] endpoint OK: v{ver}/{ep}")
                 return ver, ep
         except Exception:  # noqa: BLE001 -- probe: any failure means try next
             logger.debug(f"[DISCOVER] v{ver}/{ep} probe failed", exc_info=True)
@@ -815,12 +816,12 @@ def collect_metrics():
     _replication_lag_key = _discover_replication_lag_key()
 
     # v1.2 slow families -- best-effort discovery, skipped cleanly on miss
-    _events_endpoint = _discover_list_endpoint([("3", "event/events")])
-    _snapshots_endpoint = _discover_list_endpoint([("1", "snapshot/snapshots")])
-    _pools_endpoint = _discover_list_endpoint([("3", "storagepool/storagepools")])
-    _sensors_endpoint = _discover_list_endpoint([("3", "hardware/sensors")])
-    _dedupe_endpoint = _discover_list_endpoint([("3", "dedupe/summary")])
-    _cloudpools_endpoint = _discover_list_endpoint([("3", "cloud/pools")])
+    _events_endpoint = _discover_endpoint([("3", "event/events")])
+    _snapshots_endpoint = _discover_endpoint([("1", "snapshot/snapshots")])
+    _pools_endpoint = _discover_endpoint([("3", "storagepool/storagepools")])
+    _sensors_endpoint = _discover_endpoint([("3", "hardware/sensors")])
+    _dedupe_endpoint = _discover_endpoint([("3", "dedupe/summary")])
+    _cloudpools_endpoint = _discover_endpoint([("3", "cloud/pools")])
     for name, ep in [
         ("events", _events_endpoint),
         ("snapshots", _snapshots_endpoint),

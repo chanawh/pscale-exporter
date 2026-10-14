@@ -229,6 +229,12 @@ CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.11 and 3.12, bu
 2. Add/adjust tests; keep `black`, `ruff`, `mypy`, and `pip-audit` clean.
 3. Open a PR — CI must be green before merge.
 
+## Acknowledgments
+
+- Dell Technologies for the PowerScale/OneFS API
+- The Prometheus and Grafana communities
+- FastAPI and `prometheus_client`
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

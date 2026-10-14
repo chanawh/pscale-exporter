@@ -107,6 +107,14 @@ Edit `ISILON_HOST` in `k8s/manifests/configmap.yaml` first.
 ISILON_PASS='...' docker compose up -d
 ```
 
+### Manual (bare metal)
+
+```bash
+pip install -r requirements.txt
+export ISILON_HOST=10.0.0.5 ISILON_USER=monitor ISILON_PASS='...'
+cd exporter && python main.py
+```
+
 ## Metrics
 
 All series carry `cluster_name`. Node series add `node_id`; drive series add `node_id` + `drive_id`.
@@ -157,7 +165,7 @@ The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup,
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ISILON_HOST` | _(none — required)_ | PowerScale cluster hostname/IP |
+| `ISILON_HOST` | `127.0.0.1` | PowerScale cluster hostname/IP (the k8s/Helm defaults ship a `powerscale.example.com` placeholder — replace it) |
 | `ISILON_PORT` | `8080` | OneFS API port |
 | `ISILON_USER` | `root` | OneFS API user |
 | `ISILON_PASS` | _(none — required, fail-fast)_ | OneFS API password |

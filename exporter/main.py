@@ -27,9 +27,12 @@ def _int_env(name, default):
 ISILON_HOST = os.getenv("ISILON_HOST", "127.0.0.1")
 ISILON_PORT = _int_env("ISILON_PORT", 8080)
 ISILON_USER = os.getenv("ISILON_USER", "root")
-ISILON_PASS = os.getenv("ISILON_PASS", "a")
+ISILON_PASS = os.getenv("ISILON_PASS", "")
 SCRAPE_INTERVAL = _int_env("SCRAPE_INTERVAL", 30)
 TOMBSTONE_TTL = _int_env("TOMBSTONE_TTL", 24 * 3600)
+
+if not ISILON_PASS:
+    raise RuntimeError("ISILON_PASS is not set: refusing to start without a password")
 
 # --- Prometheus Metrics ---
 CLUSTER_HEALTH = Gauge(

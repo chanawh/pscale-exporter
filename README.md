@@ -210,10 +210,12 @@ triage runbook in `docs/runbooks.md`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ISILON_HOST` | `127.0.0.1` | PowerScale cluster hostname/IP (the k8s/Helm defaults ship a `powerscale.example.com` placeholder — replace it) |
-| `ISILON_PORT` | `8080` | OneFS API port |
-| `ISILON_USER` | `root` | OneFS API user |
-| `ISILON_PASS` | _(none — required, fail-fast)_ | OneFS API password |
+| `ISILON_HOST` | `127.0.0.1` | PowerScale cluster hostname/IP — single-cluster mode (the k8s/Helm defaults ship a `powerscale.example.com` placeholder — replace it) |
+| `ISILON_PORT` | `8080` | OneFS API port (single-cluster mode) |
+| `ISILON_USER` | `root` | OneFS API user (single-cluster mode) |
+| `ISILON_PASS` | _(none — required, fail-fast)_ | OneFS API password (single-cluster mode) |
+| `ISILON_TARGETS` | _(unset)_ | **v2:** JSON list of `{"name","host","port","user","password"}` — scrape multiple clusters |
+| `ISILON_TARGETS_FILE` | _(unset)_ | **v2:** path to a JSON (or YAML) file with the target list — best for k8s Secret mounts |
 | `SCRAPE_INTERVAL` | `30` | Scrape interval (seconds) |
 | `SLOW_SCRAPE_INTERVAL` | `300` | Scrape interval for low-churn collectors (events, snapshots, pools, sensors) |
 | `MAX_EVENTS` | `50` | Max OneFS events kept as series (cardinality guard) |
@@ -222,6 +224,25 @@ triage runbook in `docs/runbooks.md`.
 | `TOMBSTONE_TTL` | `86400` | Seconds before a silent node is dropped |
 | `LOG_LEVEL` | `INFO` | Log level |
 | `MAX_RETRIES` / `TIMEOUT` / `CIRCUIT_BREAKER_THRESHOLD` | `3` / `30` / `5` | Scraper resilience tuning |
+
+### Multi-cluster (v2)
+
+One exporter can scrape many OneFS clusters. Set `ISILON_TARGETS` (or mount
+`ISILON_TARGETS_FILE`) — when present, the single-cluster `ISILON_HOST` /
+`ISILON_PASS` settings are ignored. Every target needs `host` and `password`;
+`port` defaults to `8080`, `user` to `root`, `name` to the host.
+
+```bash
+export ISILON_TARGETS='[{"name":"prod","host":"10.0.0.1","password":"..."},{"name":"dr","host":"10.0.0.2","password":"..."}]'
+```
+
+All metrics already carry a `cluster_name` label, so multi-cluster output
+works with existing dashboards and alerts unchanged. `/healthz` reports
+per-target discovery status, `/readyz` goes ready once at least one target
+has scraped, and `isilon_exporter_target_info` exposes the configured
+targets even when a cluster is unreachable. Helm users: set `clusters:` and
+`clusterPasswords:` in values — the chart renders a `targets.json` Secret
+and mounts it automatically.
 
 ## Security / hardening
 

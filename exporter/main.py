@@ -527,349 +527,6 @@ class ClusterScraper:
             except Exception:
                 logger.exception("[!] Cloud pools collection failed")
 
-
-# ---------------------------------------------------------------------------
-# Discovery helpers
-# ---------------------------------------------------------------------------
-
-
-def _discover_node_endpoint(client) -> tuple[str, str] | None:
-    for ver, ep in [
-        ("3", "cluster/nodes"),
-        ("1", "cluster/nodes"),
-        ("3", "nodes"),
-        ("1", "nodes"),
-    ]:
-        try:
-            raw = client._request("GET", ep, version=ver)
-            if isinstance(raw, dict):
-                logger.info(f"[DISCOVER] v{ver}/{ep} -> keys: {list(raw.keys())}")
-                for val in raw.values():
-                    if isinstance(val, list) and val:
-                        return ver, ep
-            elif isinstance(raw, list) and raw:
-                return ver, ep
-        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
-            logger.info(f"[DISCOVER] v{ver}/{ep} -> {e}")
-    return None
-
-
-def _fetch_all_registry_keys(client) -> list[str]:
-    all_keys: list[str] = []
-    params: dict = {"limit": 1000}
-    while True:
-        try:
-            data = client._request("GET", "statistics/keys", version="1", params=params)
-        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
-            logger.error(f"[DISCOVER] statistics/keys error: {e}")
-            break
-        keys_list = (
-            data.get("keys", [])
-            if isinstance(data, dict)
-            else (data if isinstance(data, list) else [])
-        )
-        for entry in keys_list:
-            name = entry if isinstance(entry, str) else entry.get("key", "")
-            if name:
-                all_keys.append(name)
-        resume = data.get("resume") if isinstance(data, dict) else None
-        if not resume:
-            break
-        params = {"resume": resume}
-    return all_keys
-
-
-def _validate_key(client, key: str) -> bool:
-    try:
-        resp = client._request(
-            "GET",
-            "statistics/current",
-            version="1",
-            params={"keys": key, "devid": "all"},
-        )
-        return bool(isinstance(resp, dict) and resp.get("stats"))
-    except Exception:
-        logger.debug("stat key validation failed", exc_info=True)
-        return False
-
-
-def _discover_cpu_key(client) -> str | None:
-    logger.info("[DISCOVER] Querying statistics key registry for cpu keys...")
-    cpu_keys = []
-    params = {"limit": 1000}
-    while True:
-        try:
-            data = client._request("GET", "statistics/keys", version="1", params=params)
-        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
-            logger.error(f"[DISCOVER] statistics/keys failed: {e}")
-            break
-        keys_list = (
-            data.get("keys", [])
-            if isinstance(data, dict)
-            else (data if isinstance(data, list) else [])
-        )
-        for entry in keys_list:
-            name = entry if isinstance(entry, str) else entry.get("key", "")
-            if "cpu" in str(name).lower():
-                cpu_keys.append(name)
-        resume = data.get("resume") if isinstance(data, dict) else None
-        if not resume:
-            break
-        params = {"resume": resume}
-    logger.info(f"[DISCOVER] CPU-related keys found ({len(cpu_keys)}): {cpu_keys[:30]}")
-    for key in cpu_keys:
-        try:
-            resp = client._request(
-                "GET", "statistics/current", version="1", params={"keys": key}
-            )
-            if isinstance(resp, dict) and resp.get("stats"):
-                logger.info(f"[DISCOVER] Valid CPU key: '{key}'")
-                return key
-        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next key
-            logger.debug(f"[DISCOVER] CPU key '{key}' probe failed: {e}")
-    return None
-
-
-def _discover_cpu_core_count(client) -> int:
-    """
-    Three-stage discovery so a 500 on v1/statistics/current does not
-    strand us at core_count=1 and silently inflate CPU percentages.
-
-    Stage 1: query node.cpu.count with devid=all
-    Stage 2: query node.cpu.count without devid=all
-    Stage 3: count numbered per-core idle keys in the registry
-             (node.cpu.idle.0, node.cpu.idle.1, ...) — works even
-             when statistics/current is returning 500s
-    """
-    for params in (
-        {"keys": "node.cpu.count", "devid": "all"},
-        {"keys": "node.cpu.count"},
-    ):
-        try:
-            resp = client._request(
-                "GET", "statistics/current", version="1", params=params
-            )
-            stats = resp.get("stats", [])
-            if stats:
-                count = int(stats[0].get("value") or 1)
-                if count > 1:
-                    logger.info(
-                        f"[DISCOVER] CPU core count: {count} (via statistics/current)"
-                    )
-                    return count
-        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
-            logger.debug(f"[DISCOVER] CPU core count probe failed: {e}")
-
-    try:
-        all_keys = _fetch_all_registry_keys(client)
-        core_keys = [
-            k
-            for k in all_keys
-            if k.startswith("node.cpu.idle.") and k.split(".")[-1].isdigit()
-        ]
-        if core_keys:
-            count = len(core_keys)
-            logger.info(
-                f"[DISCOVER] CPU core count: {count} (inferred from {count} per-core idle keys in registry)"
-            )
-            return max(count, 1)
-    except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
-        logger.error(f"[DISCOVER] CPU core count stage-3 fallback failed: {e}")
-
-    logger.error(
-        "[DISCOVER] CPU core count could not be determined — defaulting to 1 (CPU % will be inflated)"
-    )
-    return 1
-
-
-def _discover_stat_map(client) -> dict:
-    logger.info("[DISCOVER] Building stat map from key registry...")
-    all_keys = _fetch_all_registry_keys(client)
-    cpu_disk_net_mem = [
-        k
-        for k in all_keys
-        if any(s in k.lower() for s in ("cpu", "disk", "net", "mem"))
-    ]
-    logger.info(f"[DISCOVER] Total candidate keys: {len(cpu_disk_net_mem)}")
-    stat_map: dict = {}
-    claimed_gauges: set[int] = set()
-    for prefix, gauge in STAT_PATTERNS:
-        if id(gauge) in claimed_gauges:
-            continue
-        matches = [k for k in cpu_disk_net_mem if k.startswith(prefix)]
-        if not matches:
-            continue
-        matches.sort(key=lambda k: (0 if ("avg" in k or "rate" in k) else 1, len(k), k))
-        for candidate in matches:
-            if _validate_key(client, candidate):
-                logger.info(f"[DISCOVER]   '{prefix}' -> '{candidate}'")
-                stat_map[candidate] = gauge
-                claimed_gauges.add(id(gauge))
-                break
-    claimed_names = {g.__class__.__name__ for g in stat_map.values()}
-    for prefix, gauge in STAT_PATTERNS:
-        if id(gauge) not in claimed_gauges:
-            gauge_name = [name for name, val in globals().items() if val is gauge]
-            label = gauge_name[0] if gauge_name else "unknown"
-            if label not in claimed_names:
-                logger.info(f"[DISCOVER]   no valid key found for gauge {label}")
-                STATPATTERN_MISS.labels(gauge_name=label, prefix=prefix).inc()
-                claimed_names.add(label)
-    logger.info(
-        f"[DISCOVER] Final stat map ({len(stat_map)} keys): {list(stat_map.keys())}"
-    )
-    return stat_map
-
-
-def _discover_drive_endpoint(client) -> tuple[str, str] | None:
-    candidates = [
-        ("3", "statistics/summary/drive"),
-        ("1", "statistics/summary/drive"),
-        ("1", "statistics/current"),
-        ("3", "storagepool/storagepools"),
-        ("3", "hardware/components/drives"),
-        ("3", "storagepool/drives"),
-        ("3", "hardware/drives"),
-        ("2", "hardware/drives"),
-    ]
-    for ver, ep in candidates:
-        try:
-            logger.info(f"[DEBUG] Testing drive endpoint: v{ver}/{ep}")
-            raw = client._request("GET", ep, version=ver, params={"limit": 5})
-            logger.info(f"[DEBUG] Raw response from v{ver}/{ep}: {raw}")
-
-            # Enhanced validation
-            is_valid = False
-            if isinstance(raw, dict):
-                # Check for any list fields that might contain drive data
-                for key, value in raw.items():
-                    if isinstance(value, list) and value:
-                        logger.info(
-                            f"[DEBUG] Found list field '{key}' with {len(value)} items"
-                        )
-                        # Sample first item to see if it looks like drive data
-                        if value[0] and isinstance(value[0], dict):
-                            sample_keys = list(value[0].keys())
-                            logger.info(f"[DEBUG] Sample item keys: {sample_keys}")
-                            # Look for drive-like fields
-                            drive_indicators = [
-                                "drive",
-                                "node",
-                                "bay",
-                                "status",
-                                "health",
-                                "device",
-                            ]
-                            if any(
-                                indicator in str(sample_keys).lower()
-                                for indicator in drive_indicators
-                            ):
-                                is_valid = True
-                                logger.info(f"[DEBUG] Found drive indicators in {key}")
-                                break
-                    elif isinstance(value, dict) and value:
-                        # Check nested dict structures
-                        for sub_key, sub_value in value.items():
-                            if isinstance(sub_value, list) and sub_value:
-                                logger.info(
-                                    f"[DEBUG] Found nested list '{key}.{sub_key}' with {len(sub_value)} items"
-                                )
-                                is_valid = True
-                                break
-                        if is_valid:
-                            break
-            elif isinstance(raw, list) and raw:
-                logger.info(f"[DEBUG] Response is list with {len(raw)} items")
-                if raw[0] and isinstance(raw[0], dict):
-                    sample_keys = list(raw[0].keys())
-                    logger.info(f"[DEBUG] Sample item keys: {sample_keys}")
-                    drive_indicators = [
-                        "drive",
-                        "node",
-                        "bay",
-                        "status",
-                        "health",
-                        "device",
-                    ]
-                    if any(
-                        indicator in str(sample_keys).lower()
-                        for indicator in drive_indicators
-                    ):
-                        is_valid = True
-                        logger.info("[DEBUG] Found drive indicators in direct list")
-
-            if is_valid:
-                logger.info(f"[DISCOVER] drive endpoint OK: v{ver}/{ep}")
-                return ver, ep
-            else:
-                logger.info(f"[DEBUG] v{ver}/{ep} does not contain drive-like data")
-
-        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
-            logger.info(f"[DISCOVER] drive endpoint v{ver}/{ep} -> {e}")
-            logger.debug(f"[DEBUG] Exception details: {type(e).__name__}: {e}")
-
-    logger.info("[DISCOVER] No drive endpoint discovered; drive metrics skipped.")
-    return None
-
-
-def _discover_replication_lag_key(client) -> str | None:
-    keys = _fetch_all_registry_keys(client)
-    cands = [
-        k
-        for k in keys
-        if ("sync" in k.lower() or "siq" in k.lower() or "replication" in k.lower())
-        and "lag" in k.lower()
-    ]
-    for k in sorted(cands):
-        if _validate_key(client, k):
-            logger.info(f"[DISCOVER] replication lag key: {k}")
-            return k
-    logger.info("[DISCOVER] No replication lag key found.")
-    return None
-
-
-def _discover_capacity_keys(
-    client, all_keys: list[str]
-) -> tuple[str | None, str | None]:
-    total_patterns = ["ifs.bytes.total", "cluster.bytes.total", "fs.bytes.total"]
-    used_patterns = ["ifs.bytes.used", "cluster.bytes.used", "fs.bytes.used"]
-
-    def _first_match(patterns):
-        for pat in patterns:
-            for k in [k for k in all_keys if pat in k]:
-                if _validate_key(client, k):
-                    logger.info(f"[DISCOVER] capacity key: '{k}'")
-                    return k
-        return None
-
-    total_key = _first_match(total_patterns)
-    used_key = _first_match(used_patterns)
-    if not total_key:
-        logger.info("[DISCOVER] No capacity total key found.")
-    if not used_key:
-        logger.info("[DISCOVER] No capacity used key found.")
-    return total_key, used_key
-
-
-def _discover_endpoint(
-    client, candidates: list[tuple[str, str]]
-) -> tuple[str, str] | None:
-    """v1.2: probe (version, endpoint) candidates; return the first whose
-    response is a non-empty dict or list. Best-effort -- a miss just means
-    that metric family is skipped, like the drive endpoint discovery."""
-    for ver, ep in candidates:
-        try:
-            raw = client._request("GET", ep, version=ver, params={"limit": 5})
-            if isinstance(raw, dict) and raw:
-                logger.info(f"[DISCOVER] endpoint OK: v{ver}/{ep}")
-                return ver, ep
-            if isinstance(raw, list) and raw:
-                logger.info(f"[DISCOVER] endpoint OK: v{ver}/{ep}")
-                return ver, ep
-        except Exception:
-            logger.debug(f"[DISCOVER] v{ver}/{ep} probe failed", exc_info=True)
-    return None
-
     def scrape(self) -> None:
         """One fast scrape iteration for this target."""
         loop_start = perf_counter()
@@ -878,13 +535,14 @@ def _discover_endpoint(
         try:
             ident = self.client.get_cluster_info()
             cluster_name = ident.get("name", "unknown_cluster")
+            self.cluster_name = cluster_name
             total, ok = 0, 0
             node_ids: list[str] = []
 
             if self.node_endpoint:
                 ver, ep = self.node_endpoint
                 raw = self.client._request("GET", ep, version=ver)
-                nodes = []
+                nodes: list = []
                 if isinstance(raw, dict):
                     nodes = raw.get("nodes") or raw.get("items") or []
                 elif isinstance(raw, list):
@@ -1264,37 +922,381 @@ def _discover_endpoint(
             SCRAPE_SUCCESS.labels(cluster_name=cluster_name).set(0)
             SCRAPE_DURATION.observe(max(perf_counter() - loop_start, 0.0))
 
-    # ---------------------------------------------------------------------------
-    # Per-node helpers
-    # ---------------------------------------------------------------------------
 
-    def _node_id(n: dict) -> str:
-        return str(
-            n.get("id") or n.get("lnn") or n.get("name") or n.get("devid") or "unknown"
-        )
+# ---------------------------------------------------------------------------
+# Discovery helpers
+# ---------------------------------------------------------------------------
 
-    def _node_healthy(n: dict) -> bool:
-        sf: dict = {}
+
+def _discover_node_endpoint(client) -> tuple[str, str] | None:
+    for ver, ep in [
+        ("3", "cluster/nodes"),
+        ("1", "cluster/nodes"),
+        ("3", "nodes"),
+        ("1", "nodes"),
+    ]:
         try:
-            sf = (n.get("state") or {}).get("smartfail") or {}
-        except Exception:
-            logger.debug(
-                "node smartfail state unreadable; assuming healthy", exc_info=True
+            raw = client._request("GET", ep, version=ver)
+            if isinstance(raw, dict):
+                logger.info(f"[DISCOVER] v{ver}/{ep} -> keys: {list(raw.keys())}")
+                for val in raw.values():
+                    if isinstance(val, list) and val:
+                        return ver, ep
+            elif isinstance(raw, list) and raw:
+                return ver, ep
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
+            logger.info(f"[DISCOVER] v{ver}/{ep} -> {e}")
+    return None
+
+
+def _fetch_all_registry_keys(client) -> list[str]:
+    all_keys: list[str] = []
+    params: dict = {"limit": 1000}
+    while True:
+        try:
+            data = client._request("GET", "statistics/keys", version="1", params=params)
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
+            logger.error(f"[DISCOVER] statistics/keys error: {e}")
+            break
+        keys_list = (
+            data.get("keys", [])
+            if isinstance(data, dict)
+            else (data if isinstance(data, list) else [])
+        )
+        for entry in keys_list:
+            name = entry if isinstance(entry, str) else entry.get("key", "")
+            if name:
+                all_keys.append(name)
+        resume = data.get("resume") if isinstance(data, dict) else None
+        if not resume:
+            break
+        params = {"resume": resume}
+    return all_keys
+
+
+def _validate_key(client, key: str) -> bool:
+    try:
+        resp = client._request(
+            "GET",
+            "statistics/current",
+            version="1",
+            params={"keys": key, "devid": "all"},
+        )
+        return bool(isinstance(resp, dict) and resp.get("stats"))
+    except Exception:
+        logger.debug("stat key validation failed", exc_info=True)
+        return False
+
+
+def _discover_cpu_key(client) -> str | None:
+    logger.info("[DISCOVER] Querying statistics key registry for cpu keys...")
+    cpu_keys = []
+    params = {"limit": 1000}
+    while True:
+        try:
+            data = client._request("GET", "statistics/keys", version="1", params=params)
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
+            logger.error(f"[DISCOVER] statistics/keys failed: {e}")
+            break
+        keys_list = (
+            data.get("keys", [])
+            if isinstance(data, dict)
+            else (data if isinstance(data, list) else [])
+        )
+        for entry in keys_list:
+            name = entry if isinstance(entry, str) else entry.get("key", "")
+            if "cpu" in str(name).lower():
+                cpu_keys.append(name)
+        resume = data.get("resume") if isinstance(data, dict) else None
+        if not resume:
+            break
+        params = {"resume": resume}
+    logger.info(f"[DISCOVER] CPU-related keys found ({len(cpu_keys)}): {cpu_keys[:30]}")
+    for key in cpu_keys:
+        try:
+            resp = client._request(
+                "GET", "statistics/current", version="1", params={"keys": key}
             )
-            sf = {}
-        if sf:
-            return (
-                bool(sf.get("in_cluster", True))
-                and not bool(sf.get("down", False))
-                and not bool(sf.get("smartfailed", False))
+            if isinstance(resp, dict) and resp.get("stats"):
+                logger.info(f"[DISCOVER] Valid CPU key: '{key}'")
+                return key
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next key
+            logger.debug(f"[DISCOVER] CPU key '{key}' probe failed: {e}")
+    return None
+
+
+def _discover_cpu_core_count(client) -> int:
+    """
+    Three-stage discovery so a 500 on v1/statistics/current does not
+    strand us at core_count=1 and silently inflate CPU percentages.
+
+    Stage 1: query node.cpu.count with devid=all
+    Stage 2: query node.cpu.count without devid=all
+    Stage 3: count numbered per-core idle keys in the registry
+             (node.cpu.idle.0, node.cpu.idle.1, ...) — works even
+             when statistics/current is returning 500s
+    """
+    for params in (
+        {"keys": "node.cpu.count", "devid": "all"},
+        {"keys": "node.cpu.count"},
+    ):
+        try:
+            resp = client._request(
+                "GET", "statistics/current", version="1", params=params
             )
-        status_str = ""
-        for key in ("status", "health", "state"):
-            v = n.get(key)
-            if isinstance(v, str):
-                status_str = v.strip().upper()
+            stats = resp.get("stats", [])
+            if stats:
+                count = int(stats[0].get("value") or 1)
+                if count > 1:
+                    logger.info(
+                        f"[DISCOVER] CPU core count: {count} (via statistics/current)"
+                    )
+                    return count
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
+            logger.debug(f"[DISCOVER] CPU core count probe failed: {e}")
+
+    try:
+        all_keys = _fetch_all_registry_keys(client)
+        core_keys = [
+            k
+            for k in all_keys
+            if k.startswith("node.cpu.idle.") and k.split(".")[-1].isdigit()
+        ]
+        if core_keys:
+            count = len(core_keys)
+            logger.info(
+                f"[DISCOVER] CPU core count: {count} (inferred from {count} per-core idle keys in registry)"
+            )
+            return max(count, 1)
+    except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
+        logger.error(f"[DISCOVER] CPU core count stage-3 fallback failed: {e}")
+
+    logger.error(
+        "[DISCOVER] CPU core count could not be determined — defaulting to 1 (CPU % will be inflated)"
+    )
+    return 1
+
+
+def _discover_stat_map(client) -> dict:
+    logger.info("[DISCOVER] Building stat map from key registry...")
+    all_keys = _fetch_all_registry_keys(client)
+    cpu_disk_net_mem = [
+        k
+        for k in all_keys
+        if any(s in k.lower() for s in ("cpu", "disk", "net", "mem"))
+    ]
+    logger.info(f"[DISCOVER] Total candidate keys: {len(cpu_disk_net_mem)}")
+    stat_map: dict = {}
+    claimed_gauges: set[int] = set()
+    for prefix, gauge in STAT_PATTERNS:
+        if id(gauge) in claimed_gauges:
+            continue
+        matches = [k for k in cpu_disk_net_mem if k.startswith(prefix)]
+        if not matches:
+            continue
+        matches.sort(key=lambda k: (0 if ("avg" in k or "rate" in k) else 1, len(k), k))
+        for candidate in matches:
+            if _validate_key(client, candidate):
+                logger.info(f"[DISCOVER]   '{prefix}' -> '{candidate}'")
+                stat_map[candidate] = gauge
+                claimed_gauges.add(id(gauge))
                 break
-        return status_str in ("OK", "HEALTHY", "GOOD", "UP", "ONLINE", "")
+    claimed_names = {g.__class__.__name__ for g in stat_map.values()}
+    for prefix, gauge in STAT_PATTERNS:
+        if id(gauge) not in claimed_gauges:
+            gauge_name = [name for name, val in globals().items() if val is gauge]
+            label = gauge_name[0] if gauge_name else "unknown"
+            if label not in claimed_names:
+                logger.info(f"[DISCOVER]   no valid key found for gauge {label}")
+                STATPATTERN_MISS.labels(gauge_name=label, prefix=prefix).inc()
+                claimed_names.add(label)
+    logger.info(
+        f"[DISCOVER] Final stat map ({len(stat_map)} keys): {list(stat_map.keys())}"
+    )
+    return stat_map
+
+
+def _discover_drive_endpoint(client) -> tuple[str, str] | None:
+    candidates = [
+        ("3", "statistics/summary/drive"),
+        ("1", "statistics/summary/drive"),
+        ("1", "statistics/current"),
+        ("3", "storagepool/storagepools"),
+        ("3", "hardware/components/drives"),
+        ("3", "storagepool/drives"),
+        ("3", "hardware/drives"),
+        ("2", "hardware/drives"),
+    ]
+    for ver, ep in candidates:
+        try:
+            logger.info(f"[DEBUG] Testing drive endpoint: v{ver}/{ep}")
+            raw = client._request("GET", ep, version=ver, params={"limit": 5})
+            logger.info(f"[DEBUG] Raw response from v{ver}/{ep}: {raw}")
+
+            # Enhanced validation
+            is_valid = False
+            if isinstance(raw, dict):
+                # Check for any list fields that might contain drive data
+                for key, value in raw.items():
+                    if isinstance(value, list) and value:
+                        logger.info(
+                            f"[DEBUG] Found list field '{key}' with {len(value)} items"
+                        )
+                        # Sample first item to see if it looks like drive data
+                        if value[0] and isinstance(value[0], dict):
+                            sample_keys = list(value[0].keys())
+                            logger.info(f"[DEBUG] Sample item keys: {sample_keys}")
+                            # Look for drive-like fields
+                            drive_indicators = [
+                                "drive",
+                                "node",
+                                "bay",
+                                "status",
+                                "health",
+                                "device",
+                            ]
+                            if any(
+                                indicator in str(sample_keys).lower()
+                                for indicator in drive_indicators
+                            ):
+                                is_valid = True
+                                logger.info(f"[DEBUG] Found drive indicators in {key}")
+                                break
+                    elif isinstance(value, dict) and value:
+                        # Check nested dict structures
+                        for sub_key, sub_value in value.items():
+                            if isinstance(sub_value, list) and sub_value:
+                                logger.info(
+                                    f"[DEBUG] Found nested list '{key}.{sub_key}' with {len(sub_value)} items"
+                                )
+                                is_valid = True
+                                break
+                        if is_valid:
+                            break
+            elif isinstance(raw, list) and raw:
+                logger.info(f"[DEBUG] Response is list with {len(raw)} items")
+                if raw[0] and isinstance(raw[0], dict):
+                    sample_keys = list(raw[0].keys())
+                    logger.info(f"[DEBUG] Sample item keys: {sample_keys}")
+                    drive_indicators = [
+                        "drive",
+                        "node",
+                        "bay",
+                        "status",
+                        "health",
+                        "device",
+                    ]
+                    if any(
+                        indicator in str(sample_keys).lower()
+                        for indicator in drive_indicators
+                    ):
+                        is_valid = True
+                        logger.info("[DEBUG] Found drive indicators in direct list")
+
+            if is_valid:
+                logger.info(f"[DISCOVER] drive endpoint OK: v{ver}/{ep}")
+                return ver, ep
+            else:
+                logger.info(f"[DEBUG] v{ver}/{ep} does not contain drive-like data")
+
+        except Exception as e:  # noqa: BLE001 -- probe: any failure means try next
+            logger.info(f"[DISCOVER] drive endpoint v{ver}/{ep} -> {e}")
+            logger.debug(f"[DEBUG] Exception details: {type(e).__name__}: {e}")
+
+    logger.info("[DISCOVER] No drive endpoint discovered; drive metrics skipped.")
+    return None
+
+
+def _discover_replication_lag_key(client) -> str | None:
+    keys = _fetch_all_registry_keys(client)
+    cands = [
+        k
+        for k in keys
+        if ("sync" in k.lower() or "siq" in k.lower() or "replication" in k.lower())
+        and "lag" in k.lower()
+    ]
+    for k in sorted(cands):
+        if _validate_key(client, k):
+            logger.info(f"[DISCOVER] replication lag key: {k}")
+            return k
+    logger.info("[DISCOVER] No replication lag key found.")
+    return None
+
+
+def _discover_capacity_keys(
+    client, all_keys: list[str]
+) -> tuple[str | None, str | None]:
+    total_patterns = ["ifs.bytes.total", "cluster.bytes.total", "fs.bytes.total"]
+    used_patterns = ["ifs.bytes.used", "cluster.bytes.used", "fs.bytes.used"]
+
+    def _first_match(patterns):
+        for pat in patterns:
+            for k in [k for k in all_keys if pat in k]:
+                if _validate_key(client, k):
+                    logger.info(f"[DISCOVER] capacity key: '{k}'")
+                    return k
+        return None
+
+    total_key = _first_match(total_patterns)
+    used_key = _first_match(used_patterns)
+    if not total_key:
+        logger.info("[DISCOVER] No capacity total key found.")
+    if not used_key:
+        logger.info("[DISCOVER] No capacity used key found.")
+    return total_key, used_key
+
+
+def _discover_endpoint(
+    client, candidates: list[tuple[str, str]]
+) -> tuple[str, str] | None:
+    """v1.2: probe (version, endpoint) candidates; return the first whose
+    response is a non-empty dict or list. Best-effort -- a miss just means
+    that metric family is skipped, like the drive endpoint discovery."""
+    for ver, ep in candidates:
+        try:
+            raw = client._request("GET", ep, version=ver, params={"limit": 5})
+            if isinstance(raw, dict) and raw:
+                logger.info(f"[DISCOVER] endpoint OK: v{ver}/{ep}")
+                return ver, ep
+            if isinstance(raw, list) and raw:
+                logger.info(f"[DISCOVER] endpoint OK: v{ver}/{ep}")
+                return ver, ep
+        except Exception:
+            logger.debug(f"[DISCOVER] v{ver}/{ep} probe failed", exc_info=True)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Per-node helpers
+# ---------------------------------------------------------------------------
+
+
+def _node_id(n: dict) -> str:
+    return str(
+        n.get("id") or n.get("lnn") or n.get("name") or n.get("devid") or "unknown"
+    )
+
+
+def _node_healthy(n: dict) -> bool:
+    sf: dict = {}
+    try:
+        sf = (n.get("state") or {}).get("smartfail") or {}
+    except Exception:
+        logger.debug("node smartfail state unreadable; assuming healthy", exc_info=True)
+        sf = {}
+    if sf:
+        return (
+            bool(sf.get("in_cluster", True))
+            and not bool(sf.get("down", False))
+            and not bool(sf.get("smartfailed", False))
+        )
+    status_str = ""
+    for key in ("status", "health", "state"):
+        v = n.get(key)
+        if isinstance(v, str):
+            status_str = v.strip().upper()
+            break
+    return status_str in ("OK", "HEALTHY", "GOOD", "UP", "ONLINE", "")
 
     # ---------------------------------------------------------------------------
     # Scrape loop

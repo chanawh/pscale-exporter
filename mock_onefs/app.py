@@ -143,6 +143,18 @@ async def cloud_pools():
     return {"pools": pools, "total": len(pools)}
 
 
+@app.get("/platform/3/sync/policies")
+async def sync_policies():
+    policies = data.synciq_policies()
+    return {"policies": policies, "total": len(policies)}
+
+
+@app.get("/platform/3/hardware/psus")
+async def hardware_psus():
+    psus = data.psus()
+    return {"psus": psus, "total": len(psus)}
+
+
 @app.post("/platform/1/faults")
 async def set_fault(request: Request):
     """Failure injection for demos/alert testing.

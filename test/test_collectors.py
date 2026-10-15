@@ -9,10 +9,16 @@ from collectors import (
     find_list,
     parse_cloudpools,
     parse_dedupe,
+    parse_drive_firmware,
     parse_events,
+    parse_nfs_exports,
+    parse_psus,
+    parse_quotas,
     parse_sensors,
+    parse_smb_shares,
     parse_snapshots,
     parse_storagepools,
+    parse_synciq,
     parse_versions,
 )
 
@@ -203,3 +209,162 @@ def test_parse_versions():
 def test_parse_versions_missing():
     assert parse_versions({}, []) == (None, [])
     assert parse_versions({"name": "x"}, [{"id": 1}]) == (None, [])
+
+
+# ---------------------------------------------------------------------------
+# v3 parsers
+# ---------------------------------------------------------------------------
+
+
+def test_parse_synciq_basic():
+    payload = {
+        "policies": [
+            {
+                "name": "prod-dr",
+                "enabled": True,
+                "target_host": "dr-cluster.example.com",
+                "last_success": 1700000000,
+                "last_state": "finished",
+            },
+            {"name": "archive", "enabled": False},
+        ]
+    }
+    out = parse_synciq(payload)
+    assert len(out) == 2
+    assert out[0]["policy"] == "prod-dr"
+    assert out[0]["enabled"] is True
+    assert out[0]["target_host"] == "dr-cluster.example.com"
+    assert out[0]["last_success"] == 1700000000.0
+    assert out[0]["last_state"] == "finished"
+    assert out[1]["enabled"] is False
+    assert out[1]["last_success"] is None
+
+
+def test_parse_synciq_missing_fields_skipped():
+    assert parse_synciq({}) == []
+    assert parse_synciq(None) == []
+    # unnamed policies skipped, non-dicts skipped
+    out = parse_synciq({"policies": [{"enabled": True}, "junk", {"name": "ok"}]})
+    assert [p["policy"] for p in out] == ["ok"]
+
+
+def test_parse_quotas_basic():
+    payload = {
+        "quotas": [
+            {
+                "id": "q1",
+                "path": "/ifs/home",
+                "type": "directory",
+                "usage_bytes": 5_000_000,
+                "hard_limit": 10_000_000,
+            },
+            {
+                "id": "q2",
+                "path": "/ifs/data",
+                "type": "filesystem",
+                "usage": {"logical": 123},
+            },
+        ]
+    }
+    out = parse_quotas(payload)
+    assert len(out) == 2
+    assert out[0] == {
+        "quota_id": "q1",
+        "path": "/ifs/home",
+        "type": "directory",
+        "usage_bytes": 5000000.0,
+        "limit_bytes": 10000000.0,
+    }
+    assert out[1]["usage_bytes"] == 123.0
+    assert out[1]["limit_bytes"] is None
+
+
+def test_parse_quotas_missing_id_skipped():
+    assert parse_quotas({}) == []
+    out = parse_quotas({"quotas": [{"path": "/ifs/x"}, {"id": "q9"}]})
+    assert [q["quota_id"] for q in out] == ["q9"]
+
+
+def test_parse_nfs_exports_basic():
+    payload = {
+        "exports": [
+            {"id": 1, "paths": ["/ifs/home", "/ifs/shared"]},
+            {"id": 2, "path": "/ifs/data"},
+        ]
+    }
+    out = parse_nfs_exports(payload)
+    assert out[0] == {"export_id": "1", "paths": "/ifs/home,/ifs/shared"}
+    assert out[1] == {"export_id": "2", "paths": "/ifs/data"}
+
+
+def test_parse_nfs_exports_missing_id_skipped():
+    assert parse_nfs_exports({}) == []
+    out = parse_nfs_exports({"exports": [{"paths": ["/ifs/x"]}, {"id": 3}]})
+    assert [e["export_id"] for e in out] == ["3"]
+
+
+def test_parse_smb_shares_basic():
+    payload = {
+        "shares": [
+            {"name": "home", "path": "/ifs/home"},
+            {"name": "data", "path": "/ifs/data"},
+        ]
+    }
+    out = parse_smb_shares(payload)
+    assert out == [
+        {"share_name": "home", "path": "/ifs/home"},
+        {"share_name": "data", "path": "/ifs/data"},
+    ]
+
+
+def test_parse_smb_shares_missing_name_skipped():
+    assert parse_smb_shares({}) == []
+    out = parse_smb_shares({"shares": [{"path": "/ifs/x"}, {"name": "ok"}]})
+    assert [s["share_name"] for s in out] == ["ok"]
+
+
+def test_parse_drive_firmware_basic():
+    payload = {
+        "drives": [
+            {"id": "1:1", "firmware": "A1B2"},
+            {"id": "2:3", "firmware_version": "C3D4"},
+        ]
+    }
+    out = parse_drive_firmware(payload)
+    assert out == [
+        {"node_id": "1", "drive_id": "1", "firmware": "A1B2"},
+        {"node_id": "2", "drive_id": "3", "firmware": "C3D4"},
+    ]
+
+
+def test_parse_drive_firmware_skips_bad_entries():
+    assert parse_drive_firmware({}) == []
+    out = parse_drive_firmware(
+        {
+            "drives": [
+                {"id": "1:1"},  # no firmware
+                {"id": "bay-1", "firmware": "X"},  # unparseable id
+                {"id": "1:2", "firmware": "Y"},
+            ]
+        }
+    )
+    assert out == [{"node_id": "1", "drive_id": "2", "firmware": "Y"}]
+
+
+def test_parse_psus_basic():
+    payload = {
+        "psus": [
+            {"id": "1", "node_id": "1", "status": "ok"},
+            {"slot": "2", "node": "2", "state": "failed"},
+        ]
+    }
+    out = parse_psus(payload)
+    assert out == [
+        {"node_id": "1", "psu_id": "1", "status": "OK"},
+        {"node_id": "2", "psu_id": "2", "status": "FAILED"},
+    ]
+
+
+def test_parse_psus_empty():
+    assert parse_psus({}) == []
+    assert parse_psus({"psus": []}) == []

@@ -7,10 +7,15 @@ from time import perf_counter
 from collectors import (
     parse_cloudpools,
     parse_dedupe,
+    parse_drive_firmware,
     parse_events,
+    parse_nfs_exports,
+    parse_quotas,
     parse_sensors,
+    parse_smb_shares,
     parse_snapshots,
     parse_storagepools,
+    parse_synciq,
     parse_versions,
 )
 from fastapi import FastAPI
@@ -305,6 +310,52 @@ TARGET_INFO = Gauge(
     "Configured scrape target present (1)",
     ["target", "host", "port"],
 )
+# v3: deeper OneFS coverage (slow collectors)
+SYNCIQ_POLICY_INFO = Gauge(
+    "isilon_synciq_policy_info",
+    "SyncIQ policy present (1)",
+    ["cluster_name", "policy", "target_host"],
+)
+SYNCIQ_POLICY_ENABLED = Gauge(
+    "isilon_synciq_policy_enabled",
+    "SyncIQ policy enabled (1=yes, 0=no)",
+    ["cluster_name", "policy"],
+)
+SYNCIQ_POLICY_LAST_SUCCESS = Gauge(
+    "isilon_synciq_policy_last_success_timestamp",
+    "SyncIQ policy last successful job (unix timestamp)",
+    ["cluster_name", "policy"],
+)
+QUOTA_USAGE = Gauge(
+    "isilon_quota_usage_bytes",
+    "Quota usage in bytes",
+    ["cluster_name", "quota_id", "path", "type"],
+)
+QUOTA_LIMIT = Gauge(
+    "isilon_quota_limit_bytes",
+    "Quota hard limit in bytes",
+    ["cluster_name", "quota_id", "path"],
+)
+QUOTA_USAGE_RATIO = Gauge(
+    "isilon_quota_usage_ratio",
+    "Quota usage / limit ratio",
+    ["cluster_name", "quota_id", "path"],
+)
+NFS_EXPORT_INFO = Gauge(
+    "isilon_nfs_export_info",
+    "NFS export present (1)",
+    ["cluster_name", "export_id", "paths"],
+)
+SMB_SHARE_INFO = Gauge(
+    "isilon_smb_share_info",
+    "SMB share present (1)",
+    ["cluster_name", "share_name", "path"],
+)
+DRIVE_FIRMWARE_INFO = Gauge(
+    "isilon_drive_firmware_info",
+    "Drive firmware present (1)",
+    ["cluster_name", "node_id", "drive_id", "firmware"],
+)
 
 STAT_PATTERNS = [
     # --- CPU ---
@@ -397,6 +448,8 @@ class ClusterScraper:
         self.sensors_endpoint: tuple[str, str] | None = None
         self.dedupe_endpoint: tuple[str, str] | None = None
         self.cloudpools_endpoint: tuple[str, str] | None = None
+        # v3: deeper coverage endpoints (discovered once at startup)
+        self.synciq_endpoint: tuple[str, str] | None = None
         self.known_events: set[tuple] = set()
         self.last_slow_run: float = 0.0
         self.ready: bool = False
@@ -426,6 +479,8 @@ class ClusterScraper:
         self.sensors_endpoint = _discover_endpoint(c, [("3", "hardware/sensors")])
         self.dedupe_endpoint = _discover_endpoint(c, [("3", "dedupe/summary")])
         self.cloudpools_endpoint = _discover_endpoint(c, [("3", "cloud/pools")])
+        # v3: deeper coverage
+        self.synciq_endpoint = _discover_endpoint(c, [("3", "sync/policies")])
         log(f"[*] [{self.name}] discovery complete.")
 
     def scrape_slow(self, cluster_name: str) -> None:
@@ -526,6 +581,88 @@ class ClusterScraper:
                         ).set(p["used"])
             except Exception:
                 logger.exception("[!] Cloud pools collection failed")
+
+        # --- v3: SyncIQ policies ---
+        if self.synciq_endpoint:
+            try:
+                ver, ep = self.synciq_endpoint
+                for p in parse_synciq(self.client._request("GET", ep, version=ver)):
+                    SYNCIQ_POLICY_INFO.labels(
+                        cluster_name=cluster_name,
+                        policy=p["policy"],
+                        target_host=p["target_host"],
+                    ).set(1)
+                    SYNCIQ_POLICY_ENABLED.labels(
+                        cluster_name=cluster_name, policy=p["policy"]
+                    ).set(1 if p["enabled"] else 0)
+                    if p["last_success"]:
+                        SYNCIQ_POLICY_LAST_SUCCESS.labels(
+                            cluster_name=cluster_name, policy=p["policy"]
+                        ).set(p["last_success"])
+            except Exception:
+                logger.exception("[!] SyncIQ collection failed")
+
+        # --- v3: per-quota usage (deepens the v1 quota count) ---
+        try:
+            for q in parse_quotas(
+                {"quotas": self.client.get_paginated("quota/quotas")}
+            ):
+                qlabels = {
+                    "cluster_name": cluster_name,
+                    "quota_id": q["quota_id"],
+                    "path": q["path"],
+                }
+                if q["usage_bytes"] is not None:
+                    QUOTA_USAGE.labels(**qlabels, type=q["type"]).set(q["usage_bytes"])
+                if q["limit_bytes"] is not None:
+                    QUOTA_LIMIT.labels(**qlabels).set(q["limit_bytes"])
+                if q["usage_bytes"] is not None and q["limit_bytes"]:
+                    QUOTA_USAGE_RATIO.labels(**qlabels).set(
+                        q["usage_bytes"] / q["limit_bytes"]
+                    )
+        except Exception:
+            logger.exception("[!] Quota usage collection failed")
+
+        # --- v3: NFS/SMB info (deepens the v1 counts) ---
+        try:
+            for e in parse_nfs_exports(
+                {"exports": self.client.get_paginated("protocols/nfs/exports")}
+            ):
+                NFS_EXPORT_INFO.labels(
+                    cluster_name=cluster_name,
+                    export_id=e["export_id"],
+                    paths=e["paths"],
+                ).set(1)
+        except Exception:
+            logger.exception("[!] NFS export info collection failed")
+
+        try:
+            for s in parse_smb_shares(
+                {"shares": self.client.get_paginated("protocols/smb/shares")}
+            ):
+                SMB_SHARE_INFO.labels(
+                    cluster_name=cluster_name,
+                    share_name=s["share_name"],
+                    path=s["path"],
+                ).set(1)
+        except Exception:
+            logger.exception("[!] SMB share info collection failed")
+
+        # --- v3: drive firmware ---
+        if self.drive_endpoint:
+            try:
+                ver, ep = self.drive_endpoint
+                for d in parse_drive_firmware(
+                    self.client._request("GET", ep, version=ver)
+                ):
+                    DRIVE_FIRMWARE_INFO.labels(
+                        cluster_name=cluster_name,
+                        node_id=d["node_id"],
+                        drive_id=d["drive_id"],
+                        firmware=d["firmware"],
+                    ).set(1)
+            except Exception:
+                logger.exception("[!] Drive firmware collection failed")
 
     def scrape(self) -> None:
         """One fast scrape iteration for this target."""

@@ -38,6 +38,19 @@ auth:
   password: demo
   existingSecret: ""
 
+# v2 multi-cluster. When non-empty, the chart renders a targets.json Secret
+# and sets ISILON_TARGETS_FILE; the single-cluster isilon.* settings are ignored.
+clusters: []
+  # - name: prod
+  #   host: powerscale-prod.example.com
+  #   port: 8080
+  #   user: root
+
+# Passwords for clusters, keyed by cluster name. Rendered into the targets
+# Secret. In production, prefer external-secrets or sealed-secrets.
+clusterPasswords:
+  prod: ""
+
 # Demo mode: deploy the mock OneFS cluster inside the release and
 # point the exporter at it. No PowerScale hardware needed.
 mock:

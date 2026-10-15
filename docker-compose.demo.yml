@@ -1,4 +1,5 @@
-# Demo stack: exporter scraping a mock OneFS cluster. No PowerScale hardware needed.
+# Demo stack: exporter scraping TWO mock OneFS clusters (v2 multi-cluster).
+# No PowerScale hardware needed.
 #
 #   docker compose -f docker-compose.demo.yml up --build
 #
@@ -7,12 +8,29 @@
 name: powerscale-exporter-demo
 
 services:
-  mock-onefs:
+  mock-onefs-a:
     build:
       context: .
       dockerfile: ./mock_onefs/Dockerfile
+    environment:
+      MOCK_CLUSTER_NAME: mock-onefs-a
     ports:
       - "8443:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-skf", "https://localhost:8080/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  mock-onefs-b:
+    build:
+      context: .
+      dockerfile: ./mock_onefs/Dockerfile
+    environment:
+      MOCK_CLUSTER_NAME: mock-onefs-b
+    ports:
+      - "8444:8080"
     healthcheck:
       test: ["CMD", "curl", "-skf", "https://localhost:8080/healthz"]
       interval: 5s
@@ -27,11 +45,11 @@ services:
     ports:
       - "8000:8000"
     environment:
-      ISILON_HOST: mock-onefs
-      ISILON_PORT: 8080
-      ISILON_USER: root
+      ISILON_TARGETS: '[{"name":"a","host":"mock-onefs-a","port":8080,"user":"root","password":"demo"},{"name":"b","host":"mock-onefs-b","port":8080,"user":"root","password":"demo"}]'
       ISILON_PASS: demo
       SCRAPE_INTERVAL: 15
     depends_on:
-      mock-onefs:
+      mock-onefs-a:
+        condition: service_healthy
+      mock-onefs-b:
         condition: service_healthy

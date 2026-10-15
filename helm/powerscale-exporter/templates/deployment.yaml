@@ -83,6 +83,11 @@ spec:
             secretKeyRef:
               name: {{ include "powerscale-exporter.secretName" . }}
               key: ISILON_PASS
+        {{- if .Values.clusters }}
+        # v2: multi-cluster targets file; single-cluster isilon.* settings are ignored
+        - name: ISILON_TARGETS_FILE
+          value: /etc/powerscale/targets.json
+        {{- end }}
         {{- with .Values.extraEnv }}
         # v1.2: free-form env (METRICS_AUTH_TOKEN, TLS_CERT_FILE, SLOW_SCRAPE_INTERVAL, ...)
         {{- toYaml . | nindent 8 }}
@@ -116,6 +121,16 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- if .Values.clusters }}
+        - name: targets
+          mountPath: /etc/powerscale
+          readOnly: true
+        {{- end }}
       volumes:
       - name: tmp
         emptyDir: {}
+      {{- if .Values.clusters }}
+      - name: targets
+        secret:
+          secretName: {{ include "powerscale-exporter.fullname" . }}-targets
+      {{- end }}

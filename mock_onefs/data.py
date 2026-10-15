@@ -4,10 +4,11 @@ Values are realistic magnitudes with a small random jitter applied per
 request so demo graphs move instead of rendering flat lines.
 """
 
+import os
 import random
 import time
 
-CLUSTER_NAME = "mock-onefs"
+CLUSTER_NAME = os.environ.get("MOCK_CLUSTER_NAME", "mock-onefs")
 CLUSTER_VERSION = "9.5.0"
 
 # Failure-injection state, mutated via POST /platform/1/faults.

@@ -289,7 +289,10 @@ jobs:
             for m in isilon_cluster_health isilon_node_status isilon_drive_health isilon_cluster_capacity_bytes_total isilon_snapshot_count isilon_cluster_event_info isilon_node_version_info isilon_storagepool_bytes_total isilon_dedupe_saved_bytes isilon_node_temp_celsius; do
               grep -q "^$m" /tmp/metrics.txt || ok=0
             done
-            if [ "$ok" = "1" ]; then echo "all series present"; break; fi
+            # v2: both demo clusters must be scraped
+            clusters=$(grep "^isilon_cluster_health" /tmp/metrics.txt | grep -o 'cluster_name="[^"]*"' | sort -u | wc -l)
+            [ "$clusters" -ge 2 ] || ok=0
+            if [ "$ok" = "1" ]; then echo "all series present ($clusters clusters)"; break; fi
             sleep 5
           done
           [ "$ok" = "1" ]

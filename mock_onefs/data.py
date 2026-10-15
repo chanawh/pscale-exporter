@@ -76,8 +76,20 @@ STAT_KEYS = sorted(STAT_BASES.keys())
 
 
 QUOTAS = [
-    {"id": "quota-1", "path": "/ifs/data", "type": "directory"},
-    {"id": "quota-2", "path": "/ifs/home", "type": "directory"},
+    {
+        "id": "quota-1",
+        "path": "/ifs/data",
+        "type": "directory",
+        "usage_bytes": 7516192768,
+        "limit_bytes": 10737418240,
+    },
+    {
+        "id": "quota-2",
+        "path": "/ifs/home",
+        "type": "directory",
+        "usage_bytes": 3617002688,
+        "limit_bytes": 5497558138,
+    },
 ]
 
 NFS_EXPORTS = [
@@ -106,6 +118,7 @@ def drives() -> list:
     for node in NODES:
         for bay in range(1, DRIVES_PER_NODE + 1):
             failed = fault and node["id"] == 1 and bay == 1
+            dtype = "UNKNOWN" if failed else ("SSD" if bay % 2 else "HDD")
             out.append(
                 {
                     # Real OneFS uses "node:bay" drive ids; the exporter
@@ -113,10 +126,13 @@ def drives() -> list:
                     "drive_id": f"{node['id']}:{bay}",
                     "node": node["id"],
                     "bay": bay,
-                    "type": "UNKNOWN" if failed else ("SSD" if bay % 2 else "HDD"),
+                    "type": dtype,
                     "status": "FAILED" if failed else "HEALTHY",
                     "health": "FAILED" if failed else "OK",
                     "device": f"/dev/da{bay - 1}",
+                    "firmware": (
+                        "WD4001FYYG-01SL3" if dtype == "HDD" else "ST4000NM0033-9ZM170"
+                    ),
                     "busy": 100.0 if failed else round(random.uniform(2.0, 25.0), 1),
                     "access_latency": (
                         120.0 if failed else round(random.uniform(0.4, 3.2), 2)
@@ -274,3 +290,40 @@ def cloudpools() -> list:
             "used_bytes": int(12 * 1024**4 * random.uniform(0.99, 1.01)),
         }
     ]
+
+
+def synciq_policies() -> list:
+    """SyncIQ replication policies (v3 deeper metrics)."""
+    now = time.time()
+    return [
+        {
+            "name": "prod-to-dr",
+            "enabled": True,
+            "target_host": "10.0.0.99",
+            "last_success": now - 3600,
+            "last_state": "finished",
+        },
+        {
+            "name": "archive",
+            "enabled": False,
+            "target_host": "10.0.0.100",
+            "last_success": now - 86400,
+            "last_state": "finished",
+        },
+    ]
+
+
+def psus() -> list:
+    """Power supply units, 2 per node (v3 deeper metrics). Deterministic:
+    all OK so tests stay stable."""
+    out = []
+    for node in NODES:
+        for psu in (1, 2):
+            out.append(
+                {
+                    "node_id": node["id"],
+                    "psu_id": str(psu),
+                    "status": "OK",
+                }
+            )
+    return out

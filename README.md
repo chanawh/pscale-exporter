@@ -180,6 +180,20 @@ cleanly if the cluster doesn't expose it.
 
 Plus the standard `python_*` / `process_*` series from `prometheus_client`.
 
+### v3 metric families
+
+Deeper OneFS coverage, also on the slow cadence. These deepen the v1/v1.2
+basics: per-quota usage (not just counts), per-export/share info, SyncIQ
+policy detail, and drive firmware inventory.
+
+| Metric | Description |
+|--------|-------------|
+| `isilon_synciq_policy_info` / `isilon_synciq_policy_enabled` / `isilon_synciq_policy_last_success_timestamp` | SyncIQ replication policies (`policy`, `target_host` labels) |
+| `isilon_quota_usage_bytes` / `isilon_quota_limit_bytes` / `isilon_quota_usage_ratio` | Per-quota usage vs limit (`quota_id`, `path`, `type` labels) |
+| `isilon_nfs_export_info` | NFS exports (`export_id`, `paths` labels) |
+| `isilon_smb_share_info` | SMB shares (`share_name`, `path` labels) |
+| `isilon_drive_firmware_info` | Drive firmware versions (`node_id`, `drive_id`, `firmware` labels) |
+
 ## Monitoring & alerting
 
 The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup, all pre-wired:

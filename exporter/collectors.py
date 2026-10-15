@@ -215,3 +215,162 @@ def parse_versions(identity, nodes):
         if nid and ver:
             node_versions.append((nid, str(ver)))
     return cluster_version, node_versions
+
+
+# ---------------------------------------------------------------------------
+# v3 parsers (deeper OneFS coverage)
+# ---------------------------------------------------------------------------
+
+
+def _split_drive_id(raw):
+    """Split a ``"node:drive"`` id -> ``(node_id, drive_id)`` or ``(None, None)``."""
+    s = str(raw or "")
+    if ":" not in s:
+        return None, None
+    node, drive = s.split(":", 1)
+    if not node or not drive:
+        return None, None
+    return node, drive
+
+
+def parse_synciq(payload):
+    """Parse SyncIQ policies -> ``[{"policy", "enabled", "target_host",
+    "last_success", "last_state"}]``. Entries without a name are skipped."""
+    out = []
+    for p in find_list(payload, "policies", "items", "results"):
+        if not isinstance(p, dict):
+            continue
+        name = str(p.get("name") or p.get("id") or "")
+        if not name:
+            continue
+        out.append(
+            {
+                "policy": name,
+                "enabled": bool(p.get("enabled", False)),
+                "target_host": str(
+                    p.get("target_host", p.get("target", p.get("destination", "")))
+                ),
+                "last_success": _num(
+                    p.get(
+                        "last_success",
+                        p.get("last_job_success", p.get("last_finished")),
+                    )
+                ),
+                "last_state": str(
+                    p.get("last_state", p.get("last_job_state", p.get("state", "")))
+                ),
+            }
+        )
+    return out
+
+
+def parse_quotas(payload):
+    """Parse quotas -> ``[{"quota_id", "path", "type", "usage_bytes",
+    "limit_bytes"}]`` (bytes or None). Entries without an id are skipped."""
+    out = []
+    for q in find_list(payload, "quotas", "items", "results"):
+        if not isinstance(q, dict):
+            continue
+        qid = str(q.get("id") or q.get("quota_id") or q.get("uuid") or "")
+        if not qid:
+            continue
+        usage = q.get("usage") if isinstance(q.get("usage"), dict) else {}
+        out.append(
+            {
+                "quota_id": qid,
+                "path": str(q.get("path", "")),
+                "type": str(q.get("type", q.get("enforced", ""))),
+                "usage_bytes": _num(
+                    q.get(
+                        "usage_bytes",
+                        q.get(
+                            "used_bytes",
+                            usage.get("logical", usage.get("physical")),
+                        ),
+                    )
+                ),
+                "limit_bytes": _num(
+                    q.get(
+                        "limit_bytes",
+                        q.get("hard_limit", q.get("threshold", q.get("limit"))),
+                    )
+                ),
+            }
+        )
+    return out
+
+
+def parse_nfs_exports(payload):
+    """Parse NFS exports -> ``[{"export_id", "paths"}]``; paths comma-joined."""
+    out = []
+    for e in find_list(payload, "exports", "items", "results"):
+        if not isinstance(e, dict):
+            continue
+        eid = str(e.get("id") or e.get("export_id") or e.get("uuid") or "")
+        if not eid:
+            continue
+        paths = e.get("paths")
+        if isinstance(paths, list):
+            paths = ",".join(str(p) for p in paths)
+        elif paths is None:
+            paths = str(e.get("path", ""))
+        else:
+            paths = str(paths)
+        out.append({"export_id": eid, "paths": paths})
+    return out
+
+
+def parse_smb_shares(payload):
+    """Parse SMB shares -> ``[{"share_name", "path"}]``.
+
+    Entries without a name are skipped."""
+    out = []
+    for s in find_list(payload, "shares", "items", "results"):
+        if not isinstance(s, dict):
+            continue
+        name = str(s.get("name") or s.get("id") or "")
+        if not name:
+            continue
+        out.append({"share_name": name, "path": str(s.get("path", ""))})
+    return out
+
+
+def parse_drive_firmware(payload):
+    """Parse drives -> ``[{"node_id", "drive_id", "firmware"}]``.
+
+    ``drive_id`` is the part after ``"node:"``. Entries without firmware
+    or with unparseable ids are skipped.
+    """
+    out = []
+    for d in find_list(payload, "drives", "items", "components"):
+        if not isinstance(d, dict):
+            continue
+        fw = str(d.get("firmware", d.get("firmware_version", "")) or "")
+        if not fw:
+            continue
+        node, drive = _split_drive_id(d.get("id", d.get("drive_id")))
+        if node is None:
+            continue
+        out.append({"node_id": node, "drive_id": drive, "firmware": fw})
+    return out
+
+
+def parse_psus(payload):
+    """Parse power supplies -> ``[{"node_id", "psu_id", "status"}]``.
+
+    ``status`` is uppercased.
+    """
+    out = []
+    for p in find_list(payload, "psus", "power_supplies", "items"):
+        if not isinstance(p, dict):
+            continue
+        pid = str(p.get("id") or p.get("psu_id") or p.get("slot") or "")
+        node = str(p.get("node_id", p.get("node", p.get("lnn", ""))))
+        out.append(
+            {
+                "node_id": node,
+                "psu_id": pid,
+                "status": str(p.get("status", p.get("state", ""))).upper(),
+            }
+        )
+    return out

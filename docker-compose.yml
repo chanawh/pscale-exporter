@@ -1,12 +1,16 @@
 services:
+  # SSH tunnel to a remote OneFS cluster. Opt-in via profile:
+  #   docker compose --profile tunnel up -d
+  # Requires MGMT_IP, JUMPHOST and SSH_KEY_DIR when the profile is active.
   isilon-tunnel:
+    profiles: ["tunnel"]
     image: docker.io/alpine:3.20
     container_name: isilon-tunnel
     restart: unless-stopped
     environment:
-      MGMT_IP: ${MGMT_IP:?Set MGMT_IP to the OneFS management IP}
+      MGMT_IP: ${MGMT_IP:-127.0.0.1}
       MGMT_PORT: ${MGMT_PORT:-8080}
-      JUMPHOST: ${JUMPHOST:?Set JUMPHOST to the SSH jump host}
+      JUMPHOST: ${JUMPHOST:-unused}
       JUMPPORT: ${JUMPPORT:-22}
       SSH_KEY: "/root/.ssh/id_ed25519"
     command:
@@ -27,7 +31,7 @@ services:
             root@${JUMPHOST}
     volumes:
       - type: bind
-        source: ${SSH_KEY_DIR:?Set SSH_KEY_DIR, e.g. $HOME/.ssh}
+        source: ${SSH_KEY_DIR:-./ssh}
         target: /root/.ssh
         read_only: true
     healthcheck:
@@ -46,9 +50,10 @@ services:
     depends_on:
       isilon-tunnel:
         condition: service_healthy
+        required: false
     environment:
-      - ISILON_HOST=isilon-tunnel
-      - ISILON_PORT=8080
+      - ISILON_HOST=${ISILON_HOST:-isilon-tunnel}
+      - ISILON_PORT=${ISILON_PORT:-8080}
       - ISILON_USER=${ISILON_USER:-root}
       - ISILON_PASS=${ISILON_PASS:?Set ISILON_PASS}
       - SCRAPE_INTERVAL=${SCRAPE_INTERVAL:-30}

@@ -24,7 +24,7 @@ flowchart LR
         A["Real PowerScale<br/>OneFS API :8080"]
         M["mock-onefs<br/>(demo only)"]
     end
-    A -->|"HTTPS, every 15–30s"| E["powerscale-exporter<br/>:8000 /metrics/ /healthz"]
+    A -->|"HTTPS, every 30s"| E["powerscale-exporter<br/>:8000 /metrics/ /healthz"]
     M -->|"HTTPS"| E
     E -->|"Prometheus scrape"| P["Prometheus"]
     P --> G["Grafana"]
@@ -124,10 +124,12 @@ Edit `ISILON_HOST` in `k8s/manifests/configmap.yaml` first.
 
 ### Docker Compose (full stack)
 
-`docker-compose.yml` runs the exporter plus Prometheus, Grafana, and Alertmanager. For clusters reachable only via an SSH jump host, it also includes an optional `isilon-tunnel` service (set `MGMT_IP`, `JUMPHOST`, `SSH_KEY_DIR`):
+`docker-compose.yml` runs the exporter plus Prometheus, Grafana, and Alertmanager. For clusters reachable only via an SSH jump host, it includes an opt-in `isilon-tunnel` service:
 
 ```bash
-ISILON_PASS='...' docker compose up -d
+ISILON_HOST=10.0.0.5 ISILON_PASS='...' docker compose up -d                  # direct connection
+ISILON_PASS='...' MGMT_IP=10.0.0.5 JUMPHOST=bastion.example.com SSH_KEY_DIR=~/.ssh \
+  docker compose --profile tunnel up -d                                    # via SSH jump host
 ```
 
 ### Manual (bare metal)
@@ -198,7 +200,7 @@ policy detail, and drive firmware inventory.
 
 The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup, all pre-wired:
 
-- **Prometheus** — http://localhost:19091, scrapes the exporter every 15s (`monitoring/prometheus/prometheus.yml`)
+- **Prometheus** — http://localhost:19091, scrapes the exporter every 30s (`monitoring/prometheus/prometheus.yml`)
 - **Grafana** — http://localhost:13001, with the provisioned dashboard **"PowerScale Cluster - Complete Monitoring"**: 15 panels covering cluster health, capacity, node status, CPU, memory, network, disk I/O, drive health/performance, NFS/SMB shares, quotas, replication lag, and scrape duration
 - **Alertmanager** — http://localhost:19093 (`monitoring/alertmanager/alertmanager.yml`)
 
@@ -220,11 +222,55 @@ Recording rules (`monitoring/prometheus/recording-rules.yml`) precompute
 capacity ratio and days-until-full forecasts. Every alert links to a
 triage runbook in `docs/runbooks.md`.
 
+### Alert notifications
+
+Alertmanager ships with Slack receivers, but the webhook URL is a placeholder —
+until you set a real one, alerts appear in the Alertmanager UI only. To receive
+them in Slack:
+
+1. In your Slack workspace, add the **Incoming Webhooks** app to a channel
+   (e.g. `#powerscale-alerts`) and copy the webhook URL.
+2. Put it in `monitoring/alertmanager/alertmanager.yml`:
+   ```yaml
+   global:
+     slack_api_url: 'https://hooks.slack.com/services/T.../B.../XXXX'
+   ```
+3. Recreate Alertmanager so it picks up the config:
+   ```bash
+   docker compose up -d --force-recreate alertmanager
+   ```
+
+Critical alerts route to `#powerscale-critical` (10s group wait, 30m repeat),
+warnings to `#powerscale-warnings` (2m group wait, 4h repeat); see the `route`
+tree in `alertmanager.yml` to adjust.
+
+### Testing alerts
+
+Fire a test alert through the full pipeline (Prometheus → Alertmanager → Slack):
+
+```bash
+# 1. Add an always-firing rule to monitoring/prometheus/alert-rules.yml
+# 2. Reload Prometheus (no restart needed)
+curl -X POST http://localhost:19091/-/reload
+# 3. Watch it go firing at http://localhost:19091/alerts,
+#    then appear grouped in Alertmanager at http://localhost:19093
+```
+
+To inject directly into Alertmanager (skips Prometheus, tests routing only):
+
+```bash
+curl -X POST http://localhost:19093/api/v2/alerts \
+  -H "Content-Type: application/json" \
+  -d '[{"labels": {"alertname": "TestAlert", "severity": "critical",
+                    "cluster_name": "powerscale"},
+        "annotations": {"summary": "Test alert, safe to ignore"}}]'
+```
+
 ## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ISILON_HOST` | `127.0.0.1` | PowerScale cluster hostname/IP — single-cluster mode (the k8s/Helm defaults ship a `powerscale.example.com` placeholder — replace it) |
+| `ISILON_HOST` | `127.0.0.1` | PowerScale cluster hostname/IP — single-cluster mode (the k8s/Helm defaults ship a `powerscale.example.com` placeholder — replace it; the Compose file defaults to `isilon-tunnel` for the SSH-tunnel profile) |
 | `ISILON_PORT` | `8080` | OneFS API port (single-cluster mode) |
 | `ISILON_USER` | `root` | OneFS API user (single-cluster mode) |
 | `ISILON_PASS` | _(none — required, fail-fast)_ | OneFS API password (single-cluster mode) |
@@ -236,8 +282,6 @@ triage runbook in `docs/runbooks.md`.
 | `METRICS_AUTH_TOKEN` | _(unset = open)_ | Bearer token required for `/metrics/` when set |
 | `TLS_CERT_FILE` / `TLS_KEY_FILE` | _(unset = plain HTTP)_ | Serve `:8000` over TLS when both are set |
 | `TOMBSTONE_TTL` | `86400` | Seconds before a silent node is dropped |
-| `LOG_LEVEL` | `INFO` | Log level |
-| `MAX_RETRIES` / `TIMEOUT` / `CIRCUIT_BREAKER_THRESHOLD` | `3` / `30` / `5` | Scraper resilience tuning |
 
 ### Multi-cluster (v2)
 
@@ -286,7 +330,7 @@ CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.11 and 3.12, bu
 
 ```
 .
-├── exporter/                  # exporter app (main.py, scraper.py)
+├── exporter/                  # exporter app (main.py, scraper.py, collectors.py)
 ├── mock_onefs/                # mock OneFS API for hardware-free demos
 ├── test/                      # unit tests
 ├── k8s/
@@ -305,7 +349,6 @@ CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.11 and 3.12, bu
 - **kind cluster never becomes ready on Docker Desktop** — pin the node image: `kind create cluster --image kindest/node:v1.32.0` (v1.37.0 fails to initialize on cgroup v1 hosts).
 - **`/metrics` redirects** — the app mounts at `/metrics/` with a trailing slash.
 - **Exporter won't start: `ISILON_PASS` error** — the password has no default by design; set it.
-- **No `isilon_drive_*` series** — the mock image predates the drive-ID fix; pull the current `awhchan/powerscale-mock-onefs:latest`.
 - **Exporter can't reach the cluster** — check `/healthz` (`active_stat_map` shows what discovery found) and the exporter logs for API errors.
 
 ## Contributing

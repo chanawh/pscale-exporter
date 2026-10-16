@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-10-15
+
+Deeper OneFS coverage: nine new metric families collected on the slow
+cadence.
+
+### Added
+- SyncIQ policy metrics: `isilon_synciq_policy_info`,
+  `isilon_synciq_policy_enabled`, `isilon_synciq_policy_last_success_timestamp`
+  (per policy)
+- Quota metrics: `isilon_quota_usage_bytes`, `isilon_quota_limit_bytes`,
+  `isilon_quota_usage_ratio` (per quota: `quota_id`/`path`/`type` labels)
+- Share inventory: `isilon_nfs_export_info` (per export),
+  `isilon_smb_share_info` (per share)
+- `isilon_drive_firmware_info` (per drive)
+- e2e CI asserts all nine new series against the mock OneFS API
+
+### Notes
+- The duplicate PSU metric was deliberately skipped: v1.2.0's
+  hardware-sensor coverage already reports PSU health.
+
+## [2.0.0] - 2026-10-14
+
+One exporter scrapes multiple clusters.
+
+### Added
+- Multi-cluster scraping via `ISILON_TARGETS` / `ISILON_TARGETS_FILE`;
+  per-target health reporting
+- Two-cluster e2e assertion in CI
+
+### Notes
+- Every series already carried a `cluster_name` label, so no metric-name or
+  label changes were needed: existing dashboards and the 18 alert rules work
+  unchanged across clusters.
+- Multi-cluster is opt-in: without `ISILON_TARGETS`/`ISILON_TARGETS_FILE`
+  the exporter runs exactly like v1 (single cluster from
+  `ISILON_HOST`/`ISILON_PASS`).
+
+## [1.2.0] - 2026-10-14
+
+Feature release: broader metric coverage, production readiness signals, and
+hardened delivery.
+
+### Added
+- 13 new gauges: OneFS events, snapshots, storage pools, hardware sensors,
+  dedupe, CloudPools, cluster/node versions
+- Slow-collector cadence for expensive endpoints, with an event cardinality
+  guard
+- `/livez` and readiness-gated `/readyz` endpoints
+- Optional bearer auth and native TLS for the exporter itself
+- Mock OneFS fault-injection endpoints (drive failure, node-down scenarios)
+- Capacity recording rules and 4 new alerts (18 total)
+- e2e CI job: demo stack boot, key-series assertions, drive-failure
+  round-trip
+
+### Fixed
+- `Dockerfile` runtime stage now ships `collectors.py` (was
+  `ModuleNotFoundError` at startup)
+- Dedupe discovery: endpoints returning summary dicts are discovered, not
+  just lists
+
 ## [1.0.0] - 2026-10-13
 
 First hardened release. Twelve PRs took the original exporter from
@@ -18,8 +78,11 @@ project:
 - Helm chart (`helm/powerscale-exporter`) for real-cluster and demo installs
 - Kustomize demo overlay deploying the mock in-cluster
 - Alert runbooks (`docs/runbooks.md`) linked from every alert annotation
-- Release inputs: git tags now publish versioned Docker Hub tags
-  (`:1.0.0`) via `docker/metadata-action` (`type=ref,event=tag`)
+- Release inputs: `docker/metadata-action` configured to publish versioned
+  Docker Hub tags from git tags (`type=ref,event=tag`) — however, the
+  workflow's `on:` block had no `tags:` trigger, so tag pushes never ran CI
+  and no versioned (`:1.0.0`) image was ever published (fixed in Unreleased;
+  Docker Hub held only `latest`/`main`/`sha-*` tags as of 2026-10-15)
 
 ### Changed
 - Full README rewrite: verified quickstarts, real metric names from live
@@ -108,17 +171,30 @@ project:
 
 ## [Unreleased]
 
-### Planned
-- Additional metric collections (quota usage, NFS/SMB statistics)
-- Advanced alerting rules with machine learning insights
-- Performance optimization and caching
-- Multi-cluster support
-- Kubernetes deployment manifests
-- Advanced authentication methods (OAuth, SAML)
-- Metrics retention optimization
-- Real-time streaming metrics
-- Custom dashboard templates
-- Integration with other monitoring systems
+### Fixed
+- Versioned Docker Hub images now publish on git tag pushes: added
+  `tags: ['v*']` to the workflow `on:` block and switched both image
+  metadata blocks (exporter + mock) from `type=ref,event=tag` to
+  `type=semver,pattern={{version}}`, so pushing `vX.Y.Z` publishes image
+  tag `X.Y.Z`. Previously the `type=ref,event=tag` lines were dead config —
+  tag pushes never ran CI, and no `:1.0.0`/`:1.2.0`/`:2.0.0`/`:3.0.0` images
+  were ever published.
+
+### Backfill (run after this PR merges)
+The `v1.2.0`, `v2.0.0`, and `v3.0.0` tags already exist but never ran CI.
+Delete and re-push each tag to trigger the workflow; the tags keep pointing
+at the same commits, so the GitHub Releases are unaffected:
+
+```bash
+for v in 1.2.0 2.0.0 3.0.0; do
+  git push origin :refs/tags/v$v
+  git push origin v$v
+done
+```
+
+Each re-push runs CI and publishes the matching semver image tag
+(`awhchan/powerscale-exporter:1.2.0`, `:2.0.0`, `:3.0.0`, and the same for
+`awhchan/powerscale-mock-onefs`). Verify on Docker Hub afterwards.
 
 ---
 

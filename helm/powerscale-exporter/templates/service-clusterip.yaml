@@ -7,9 +7,9 @@ metadata:
   labels:
     {{- include "powerscale-exporter.labels" . | nindent 4 }}
   annotations:
-    prometheus.io/scrape: "true"
-    prometheus.io/port: "8000"
-    prometheus.io/path: "/metrics/"
+    {{- with .Values.serviceAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
     description: "ClusterIP service for internal Prometheus scraping"
 spec:
   type: ClusterIP

@@ -1,0 +1,127 @@
+# CustomResourceDefinition for PowerScaleExporter.
+# Group: monitoring.chanawh.io, Version: v1alpha1.
+# Mirrors the validation markers in api/v1alpha1/powerscaleexporter_types.go
+# (no controller-gen in this environment; keep the two in sync by hand).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: powerscaleexporters.monitoring.chanawh.io
+spec:
+  group: monitoring.chanawh.io
+  names:
+    kind: PowerScaleExporter
+    listKind: PowerScaleExporterList
+    plural: powerscaleexporters
+    singular: powerscaleexporter
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    subresources:
+      status: {}
+    additionalPrinterColumns:
+    - name: Available
+      type: string
+      jsonPath: .status.conditions[?(@.type=="Available")].status
+    - name: Age
+      type: date
+      jsonPath: .metadata.creationTimestamp
+    schema:
+      openAPIV3Schema:
+        type: object
+        properties:
+          spec:
+            type: object
+            required: [isilon, authSecretRef]
+            properties:
+              isilon:
+                type: object
+                required: [host]
+                properties:
+                  host:
+                    type: string
+                    minLength: 1
+                  port:
+                    type: integer
+                    minimum: 1
+                    maximum: 65535
+                    default: 8080
+              authSecretRef:
+                type: object
+                required: [name]
+                properties:
+                  name:
+                    type: string
+                    minLength: 1
+                  userKey:
+                    type: string
+                    default: ISILON_USER
+                  passwordKey:
+                    type: string
+                    default: ISILON_PASS
+              targetClusters:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [name, host, authSecretRef]
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+                    host:
+                      type: string
+                      minLength: 1
+                    port:
+                      type: integer
+                      minimum: 1
+                      maximum: 65535
+                      default: 8080
+                    authSecretRef:
+                      type: object
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        userKey:
+                          type: string
+                          default: ISILON_USER
+                        passwordKey:
+                          type: string
+                          default: ISILON_PASS
+              replicas:
+                type: integer
+                minimum: 1
+                default: 1
+              image:
+                type: string
+                default: awhchan/powerscale-exporter:latest
+              serviceMonitor:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    default: false
+              resources:
+                type: object
+                x-kubernetes-preserve-unknown-fields: true
+          status:
+            type: object
+            properties:
+              conditions:
+                type: array
+                items:
+                  type: object
+                  required: [type, status]
+                  properties:
+                    type: {type: string}
+                    status: {type: string}
+                    reason: {type: string}
+                    message: {type: string}
+                    observedGeneration: {type: integer, format: int64}
+                    lastTransitionTime: {type: string, format: date-time}
+              observedGeneration:
+                type: integer
+                format: int64

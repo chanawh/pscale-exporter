@@ -1,0 +1,33 @@
+# Example: single-cluster PowerScaleExporter.
+#
+# 1. Create the credentials Secret (never inline passwords in the CR):
+#      kubectl create secret generic isilon-auth -n powerscale-monitoring \
+#        --from-literal=ISILON_USER=root --from-literal=ISILON_PASS='change-me'
+# 2. Apply the CRD + RBAC, then this file:
+#      kubectl apply -f ../crd/bases/monitoring.chanawh.io_powerscaleexporters.yaml
+#      kubectl apply -f ../rbac/role.yaml
+#      kubectl apply -f powerscaleexporter-single.yaml
+apiVersion: monitoring.chanawh.io/v1alpha1
+kind: PowerScaleExporter
+metadata:
+  name: prod
+  namespace: powerscale-monitoring
+spec:
+  isilon:
+    host: powerscale-prod.example.com
+    port: 8080
+  authSecretRef:
+    name: isilon-auth
+    # userKey: ISILON_USER       # defaults
+    # passwordKey: ISILON_PASS  # defaults
+  replicas: 2
+  image: awhchan/powerscale-exporter:3.0.1
+  serviceMonitor:
+    enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi

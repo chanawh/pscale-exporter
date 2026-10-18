@@ -1,0 +1,41 @@
+# Example: multi-cluster PowerScaleExporter.
+#
+# Mirrors the exporter's ISILON_TARGETS semantics: one exporter Deployment
+# scrapes every listed cluster, each series carrying its cluster_name label.
+# Credentials always come from Secrets — one per cluster.
+#
+#   kubectl create secret generic auth-prod -n powerscale-monitoring \
+#     --from-literal=ISILON_USER=root --from-literal=ISILON_PASS='change-me'
+#   kubectl create secret generic auth-dr -n powerscale-monitoring \
+#     --from-literal=ISILON_USER=root --from-literal=ISILON_PASS='change-me-too'
+#   kubectl apply -f powerscaleexporter-multi.yaml
+#
+# The operator renders a <name>-targets Secret with targets.json and sets
+# ISILON_TARGETS_FILE on the Deployment. The single-cluster isilon /
+# authSecretRef fields are ignored when targetClusters is non-empty.
+apiVersion: monitoring.chanawh.io/v1alpha1
+kind: PowerScaleExporter
+metadata:
+  name: fleet
+  namespace: powerscale-monitoring
+spec:
+  # Required by the schema but ignored in multi-cluster mode.
+  isilon:
+    host: unused.example.com
+  authSecretRef:
+    name: unused
+  targetClusters:
+  - name: prod
+    host: powerscale-prod.example.com
+    port: 8080
+    authSecretRef:
+      name: auth-prod
+  - name: dr
+    host: powerscale-dr.example.com
+    port: 8080
+    authSecretRef:
+      name: auth-dr
+  replicas: 1
+  image: awhchan/powerscale-exporter:3.0.1
+  serviceMonitor:
+    enabled: true

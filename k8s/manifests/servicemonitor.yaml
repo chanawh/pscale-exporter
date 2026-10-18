@@ -1,0 +1,27 @@
+# Example ServiceMonitor for Prometheus Operator users (NOT part of the
+# kustomize base — it is intentionally absent from kustomization.yaml).
+#
+# Requires the monitoring.coreos.com ServiceMonitor CRD, e.g. via
+# kube-prometheus-stack. The selector matches the exporter Service's
+# `app: powerscale-exporter` label; adjust the matchLabels if your
+# manifests use different labels.
+#
+# Apply standalone after the base:
+#   kubectl apply -f k8s/manifests/servicemonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: powerscale-exporter
+  namespace: powerscale-monitoring
+  labels:
+    app: powerscale-exporter
+spec:
+  selector:
+    matchLabels:
+      app: powerscale-exporter
+  endpoints:
+  - port: http
+    # Trailing slash matters: the exporter serves metrics at /metrics/
+    path: /metrics/
+    interval: 30s
+    scrapeTimeout: 10s

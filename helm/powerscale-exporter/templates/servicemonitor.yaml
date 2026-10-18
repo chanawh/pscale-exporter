@@ -1,0 +1,23 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "powerscale-exporter.fullname" . }}
+  namespace: {{ .Values.namespace.name }}
+  labels:
+    {{- include "powerscale-exporter.labels" . | nindent 4 }}
+    {{- with .Values.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  # Scrapes the exporter Service, which carries the chart's selector labels.
+  selector:
+    matchLabels:
+      {{- include "powerscale-exporter.selectorLabels" . | nindent 6 }}
+  endpoints:
+  - port: http
+    # Trailing slash matters: the exporter serves metrics at /metrics/
+    path: /metrics/
+    interval: {{ .Values.serviceMonitor.interval | quote }}
+    scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout | quote }}
+{{- end }}

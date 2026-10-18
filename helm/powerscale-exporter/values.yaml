@@ -74,6 +74,16 @@ service:
     enabled: false
     port: 30080
 
+# Prometheus Operator ServiceMonitor. Requires the monitoring.coreos.com
+# ServiceMonitor CRD (e.g. kube-prometheus-stack). Selects the exporter
+# Service via the chart's selector labels.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  # Extra labels on the ServiceMonitor object itself.
+  labels: {}
+
 networkPolicy:
   enabled: true
   # CIDRs the exporter is allowed to reach on the OneFS API port.

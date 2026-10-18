@@ -107,6 +107,13 @@ podAnnotations:
   prometheus.io/port: "8000"
   prometheus.io/path: "/metrics/"
 
+# Annotations on the exporter Services (previously hardcoded in the
+# templates; now overridable like podAnnotations).
+serviceAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/metrics/"
+
 # v1.2: free-form extra environment variables, e.g.
 # extraEnv:
 #   - name: METRICS_AUTH_TOKEN

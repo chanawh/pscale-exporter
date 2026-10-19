@@ -1,0 +1,51 @@
+# RBAC for the powerscale-exporter operator controller.
+# The controller needs:
+#   - full access to its own CRD (+ status subresource)
+#   - manage Deployments, Services, Secrets it owns
+#   - manage ServiceMonitors (monitoring.coreos.com) when enabled
+#   - read Secrets referenced by authSecretRef / targetClusters
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: powerscale-exporter-operator
+  namespace: powerscale-operator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: powerscale-exporter-operator
+rules:
+# Own CRD.
+- apiGroups: [monitoring.chanawh.io]
+  resources: [powerscaleexporters]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [monitoring.chanawh.io]
+  resources: [powerscaleexporters/status]
+  verbs: [get, update, patch]
+- apiGroups: [monitoring.chanawh.io]
+  resources: [powerscaleexporters/finalizers]
+  verbs: [update]
+# Owned workloads.
+- apiGroups: [apps]
+  resources: [deployments]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [services, secrets]
+  verbs: [get, list, watch, create, update, patch, delete]
+# Optional Prometheus Operator integration.
+- apiGroups: [monitoring.coreos.com]
+  resources: [servicemonitors]
+  verbs: [get, list, watch, create, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: powerscale-exporter-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: powerscale-exporter-operator
+subjects:
+- kind: ServiceAccount
+  name: powerscale-exporter-operator
+  namespace: powerscale-operator-system

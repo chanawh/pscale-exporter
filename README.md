@@ -201,10 +201,10 @@ policy detail, and drive firmware inventory.
 The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup, all pre-wired:
 
 - **Prometheus** — http://localhost:19091, scrapes the exporter every 30s (`monitoring/prometheus/prometheus.yml`)
-- **Grafana** — http://localhost:13001, with the provisioned dashboard **"PowerScale Cluster - Complete Monitoring"**: 15 panels covering cluster health, capacity, node status, CPU, memory, network, disk I/O, drive health/performance, NFS/SMB shares, quotas, replication lag, and scrape duration
+- **Grafana** — http://localhost:13001, with the provisioned dashboard **"PowerScale Cluster - Complete Monitoring"**: 18 panels covering cluster health, capacity, node status, CPU, memory, network, disk I/O, drive health/performance, NFS/SMB shares, quotas, SyncIQ policies, replication lag, and scrape duration
 - **Alertmanager** — http://localhost:19093 (`monitoring/alertmanager/alertmanager.yml`)
 
-18 alert rules (`monitoring/prometheus/alert-rules.yml`), all firing on metrics the exporter actually emits:
+22 alert rules (`monitoring/prometheus/alert-rules.yml`), all firing on metrics the exporter actually emits:
 
 | Alert | Condition |
 |-------|-----------|
@@ -215,6 +215,8 @@ The full Compose stack (`docker-compose.yml`) ships a complete monitoring setup,
 | `PowerScaleHighDiskBusy` | disk busy % > 90 |
 | `PowerScaleHighDriveLatency` | drive latency > 50ms |
 | `PowerScaleReplicationStalled` / `PowerScaleReplicationLag` | lag > 3600s / 300s |
+| `PowerScaleSyncIQPolicyDisabled` / `PowerScaleSyncIQStale` | policy disabled / no success in 24h |
+| `PowerScaleQuotaWarning` / `PowerScaleQuotaCritical` | quota usage ratio > 0.9 / 0.95 |
 | `PowerScaleExporterDown` / `PowerScaleExporterSlow` / `PowerScaleClusterDegraded` | exporter health / scrape duration |
 | `PowerScaleScrapeFailing` / `PowerScaleApiErrorsSpike` | scrape success / API error rate |
 
@@ -265,6 +267,37 @@ curl -X POST http://localhost:19093/api/v2/alerts \
                     "cluster_name": "powerscale"},
         "annotations": {"summary": "Test alert, safe to ignore"}}]'
 ```
+
+## Kubernetes operator
+
+For GitOps-style management, a Go operator (controller-runtime) runs the
+exporter from a single custom resource instead of hand-maintained
+Deployments. One `PowerScaleExporter` CR
+(`monitoring.chanawh.io/v1alpha1`) reconciles a Deployment (with
+`/livez`+`/readyz` probes), a ClusterIP Service, an optional Prometheus
+Operator ServiceMonitor, and — in multi-cluster mode — a targets Secret
+rendered from per-cluster credentials. Credentials live in Secrets
+referenced by `authSecretRef`; they are never inlined in the CR.
+
+```yaml
+apiVersion: monitoring.chanawh.io/v1alpha1
+kind: PowerScaleExporter
+metadata:
+  name: prod
+  namespace: powerscale-monitoring
+spec:
+  isilon:
+    host: powerscale-prod.example.com
+  authSecretRef:
+    name: isilon-auth        # ISILON_USER / ISILON_PASS keys
+  replicas: 2
+  serviceMonitor:
+    enabled: true
+```
+
+Full install steps, the multi-cluster example, RBAC/CRD manifests, and
+the controller design live in [`operator/`](operator/) — start with
+`operator/README.md`.
 
 ## Configuration
 
@@ -339,6 +372,7 @@ CI (`.github/workflows/ci.yml`) runs the same checks on Python 3.11 and 3.12, bu
 ├── helm/
 │   └── powerscale-exporter/   # Helm chart (demo + real-cluster modes)
 ├── monitoring/                # Prometheus / Grafana / Alertmanager configs
+├── operator/                  # Go Kubernetes operator (PowerScaleExporter CRD)
 ├── docker-compose.yml         # full stack (+ optional SSH tunnel)
 ├── docker-compose.demo.yml    # demo stack (mock + exporter)
 └── Dockerfile

@@ -233,3 +233,59 @@ cluster fills within 30 days.
    ("Circuit breaker OPEN" means the exporter is already backing off).
 3. Persistent errors on one endpoint often mean a OneFS-side issue
    (service restart, upgrade in progress) rather than an exporter bug.
+
+## PowerScaleSyncIQPolicyDisabled
+
+**Severity:** warning
+
+**Fires when:** `isilon_synciq_policy_enabled == 0` for 10 minutes — a
+SyncIQ replication policy is turned off.
+
+1. Confirm intent: was the policy disabled on purpose (maintenance,
+   decommission)? If so, silence the alert for the policy.
+2. If unintentional, check the OneFS WebUI (Data Protection > SyncIQ >
+   Policies) for who/when disabled it — audit logs live there, not here.
+3. Re-enable only after confirming the target cluster is reachable; a
+   policy enabled against a dead target will fail every job.
+
+## PowerScaleSyncIQStale
+
+**Severity:** warning
+
+**Fires when:** a SyncIQ policy's last successful job timestamp is older
+than 24h (`time() - isilon_synciq_policy_last_success_timestamp > 86400`).
+
+1. First check the policy schedule: weekly or monthly policies will trip
+   this. Tune the threshold per policy (edit the rule expr) if the
+   schedule is legitimately longer than daily.
+2. For daily-or-faster policies: check recent job reports in the OneFS
+   WebUI for failures (network, target full, authentication).
+3. Correlate with `PowerScaleReplicationStalled`/`PowerScaleReplicationLag`
+   — a stalled job and a stale success timestamp usually share a cause.
+
+## PowerScaleQuotaWarning
+
+**Severity:** warning
+
+**Fires when:** `isilon_quota_usage_ratio > 0.9` for 15 minutes on any
+quota.
+
+1. Identify the quota: `isi quota quotas list --path={{ $labels.path }}`
+   (or check the dashboard's Top Quotas panel) and find what's growing.
+2. Usual fixes: raise the quota, archive cold data, or move the workload.
+3. If this fires repeatedly for the same path, the quota limit is
+   undersized for the workload — fix the limit, not the alert.
+
+## PowerScaleQuotaCritical
+
+**Severity:** critical
+
+**Fires when:** `isilon_quota_usage_ratio > 0.95` for 10 minutes — writes
+will start failing at 100%.
+
+1. Treat as urgent: at 100% the application writing to this path gets
+   ENOSPC errors.
+2. Immediate relief: raise the quota (`isi quota quotas modify`) or free
+   space now; investigate the growth cause after.
+3. After recovery, review whether the quota policy matches the workload —
+   a critical firing twice for the same path means the limit was wrong.

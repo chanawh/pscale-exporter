@@ -550,6 +550,138 @@
         "max": true,
         "min": true
       }
+    },
+    {
+      "id": 16,
+      "title": "SyncIQ Policy Status",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "isilon_synciq_policy_enabled",
+          "legendFormat": "{{cluster_name}}/{{policy}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "text": "DISABLED",
+                  "color": "red"
+                }
+              }
+            },
+            {
+              "options": {
+                "1": {
+                  "text": "ENABLED",
+                  "color": "green"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      },
+      "options": {
+        "colorMode": "background"
+      }
+    },
+    {
+      "id": 17,
+      "title": "Top Quotas by Usage Ratio",
+      "type": "table",
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 48
+      },
+      "targets": [
+        {
+          "expr": "topk(10, isilon_quota_usage_ratio)",
+          "legendFormat": "{{cluster_name}} {{path}}"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 0.9
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 18,
+      "title": "NFS / SMB Share Counts",
+      "type": "stat",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 56
+      },
+      "targets": [
+        {
+          "expr": "count(isilon_nfs_export_info)",
+          "legendFormat": "NFS exports"
+        },
+        {
+          "expr": "count(isilon_smb_share_info)",
+          "legendFormat": "SMB shares"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none"
+        }
+      },
+      "options": {
+        "colorMode": "value"
+      }
     }
   ],
   "time": {

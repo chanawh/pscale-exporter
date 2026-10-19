@@ -223,3 +223,54 @@ groups:
       summary: "PowerScale exporter API error spike"
       description: "OneFS API error rate is {{ $value }}/sec over the last 15 minutes for PowerScale exporter"
       runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscaleapierrorsspike"
+
+- name: powerscale-v3.rules
+  rules:
+  # v3 metric families: SyncIQ replication, quotas, protocol shares
+  - alert: PowerScaleSyncIQPolicyDisabled
+    expr: isilon_synciq_policy_enabled == 0
+    for: 10m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "SyncIQ policy {{ $labels.policy }} is disabled on {{ $labels.cluster_name }}"
+      description: "SyncIQ replication policy {{ $labels.policy }} on cluster {{ $labels.cluster_name }} has been disabled for more than 10 minutes — no replication is running for this policy"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalesynciqpolicydisabled"
+
+  - alert: PowerScaleSyncIQStale
+    expr: (time() - isilon_synciq_policy_last_success_timestamp) > 86400
+    for: 30m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "SyncIQ policy {{ $labels.policy }} has no successful job in 24h on {{ $labels.cluster_name }}"
+      description: "SyncIQ policy {{ $labels.policy }} on cluster {{ $labels.cluster_name }} last succeeded {{ $value | humanizeDuration }} ago. Adjust the 24h threshold per policy schedule if this policy runs less often than daily"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalesynciqstale"
+
+  - alert: PowerScaleQuotaWarning
+    expr: isilon_quota_usage_ratio > 0.9
+    for: 15m
+    labels:
+      severity: warning
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Quota {{ $labels.path }} over 90% used on {{ $labels.cluster_name }}"
+      description: "Quota {{ $labels.quota_id }} ({{ $labels.path }}) on cluster {{ $labels.cluster_name }} is {{ $value | humanizePercentage }} full"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalequotawarning"
+
+  - alert: PowerScaleQuotaCritical
+    expr: isilon_quota_usage_ratio > 0.95
+    for: 10m
+    labels:
+      severity: critical
+      service: powerscale
+      team: storage
+    annotations:
+      summary: "Quota {{ $labels.path }} over 95% used on {{ $labels.cluster_name }}"
+      description: "Quota {{ $labels.quota_id }} ({{ $labels.path }}) on cluster {{ $labels.cluster_name }} is {{ $value | humanizePercentage }} full — writes will start failing at 100%"
+      runbook_url: "https://github.com/chanawh/pscale-exporter/blob/main/docs/runbooks.md#powerscalequotacritical"

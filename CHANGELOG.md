@@ -171,6 +171,23 @@ project:
 
 ## [Unreleased]
 
+### Added
+- Go Kubernetes operator (PR #21): `PowerScaleExporter` CRD
+  (`monitoring.chanawh.io/v1alpha1`) with a controller-runtime reconciler
+  managing the exporter Deployment (real `/livez`+`/readyz` probes),
+  ClusterIP Service, optional ServiceMonitor, and a multi-cluster targets
+  Secret rendered from per-cluster credential Secrets
+  (`authSecretRef`; credentials never inlined). Available/Degraded status
+  conditions, owner references for cascade deletion, CRD/RBAC manifests
+  and example CRs under `operator/`, 7 fake-client unit tests. Main README
+  gains a Kubernetes operator section.
+- v3 observability coverage: 4 new alert rules
+  (`PowerScaleSyncIQPolicyDisabled`, `PowerScaleSyncIQStale`,
+  `PowerScaleQuotaWarning` > 0.9, `PowerScaleQuotaCritical` > 0.95) with
+  runbook entries in `docs/runbooks.md`, and 3 new Grafana dashboard
+  panels (SyncIQ policy status, top quotas by usage ratio, NFS/SMB share
+  counts). 22 alerts and 18 dashboard panels total.
+
 ### Fixed
 - Versioned Docker Hub images now publish on git tag pushes: added
   `tags: ['v*']` to the workflow `on:` block and switched both image
